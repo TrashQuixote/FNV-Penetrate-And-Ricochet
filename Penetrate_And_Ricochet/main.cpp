@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "nvse/PluginAPI.h"
 #include "nvse/GameObjects.h"
 #include "nvse/GameData.h"
@@ -23,6 +23,7 @@ _InventoryRefGetForID InventoryRefGetForID;
 _InventoryRefCreate InventoryRefCreate;
 
 static CallDetour overwrite_pj_impact{};
+static CallDetour overwrite_ReloadMuzzleFlash{};
 static UINT32 proj_destroy_vtfun;
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
@@ -77,7 +78,7 @@ namespace HookMisslePJ {
 	{
 		if (!prj) return;
 		gLog.Message("=======================================");
-		gLog.FormattedMessage("prjid %x,ref_flag %x", prj->refID,prj->flags);
+		gLog.FormattedMessage("prjid %x,ref_flag %x", prj->refID, prj->flags);
 		gLog.FormattedMessage("impactdatalist size: %u, hasimpact: %u, projFlags: %u", prj->impactDataList.Count(), prj->hasImpacted, prj->projFlags);
 		gLog.FormattedMessage("power: %.3f, speedMult: %.3f, BaseProjRange: %.3f, lifeTime: %.3f, hitDamage: %.3f", prj->power, prj->speedMult, prj->BaseProjRange, prj->lifeTime, prj->hitDamage);
 		gLog.FormattedMessage("alpha: %.3f, detonationTime: %.3f, blinkTimer: %.3f, angMomentumZ: %.3f, angMomentumX: %.3f", prj->alpha, prj->detonationTime, prj->blinkTimer, prj->angMomentumZ, prj->angMomentumX);
@@ -91,25 +92,25 @@ namespace HookMisslePJ {
 		gLog.FormattedMessage("range %.3f", prj->range);
 		gLog.FormattedMessage("byte154 %u", prj->byte154);
 		gLog.FormattedMessage("pad155[0] %u,pad155[1] %u,pad155[2] %u", prj->pad155[0], prj->pad155[1], prj->pad155[2]);
-		gLog.FormattedMessage("lifetime %.3f,flt15C %.3f", prj->lifetime,prj->flt15C);
+		gLog.FormattedMessage("lifetime %.3f,flt15C %.3f", prj->lifetime, prj->flt15C);
 		gLog.FormattedMessage("prj->unk148 %u", prj->hasPlayedPassPlayerSound);
-		
+
 		gLog.Message("=======================================");
 	}
 
 
 
 	static bool __fastcall MissileProjectileImpactVF(MissileProjectile* _this) {
-		if (!_this) { 
+		if (!_this) {
 			gLog.Message("Projectile is none");
-			return false; 
+			return false;
 		}
 		auto list = _this->impactDataList;
 		if (list.Count() == 0) {
 			gLog.Message("=============== This is Fake Projectile ===============");
 			PrintProj(_this);
-			gLog.FormattedMessage("Fake Projectile Impact Result %u",_this->eImpactResult);
-			gLog.FormattedMessage("Fake Projectile Has Impact Flag %u",_this->hasImpacted);
+			gLog.FormattedMessage("Fake Projectile Impact Result %u", _this->eImpactResult);
+			gLog.FormattedMessage("Fake Projectile Has Impact Flag %u", _this->hasImpacted);
 		}
 		else {
 			gLog.Message("=============== This is Real Projectile ===============");
@@ -126,9 +127,9 @@ namespace HookMisslePJ {
 		if (list.Count() == 0) {
 			gLog.Message("List Get Clear After VF Calling");
 		}
-		else 
+		else
 		{
-			gLog.FormattedMessage("List Not Get Clear After VF Calling,count %u",list.Count());
+			gLog.FormattedMessage("List Not Get Clear After VF Calling,count %u", list.Count());
 		}
 
 		gLog.FormattedMessage("Current Projectile Impact Result %u", _this->eImpactResult);
@@ -158,7 +159,7 @@ namespace HookMisslePJ {
 			}
 		}
 
-		if (is_illegal){	// make illegal projectile will destroy directly in impact dealing
+		if (is_illegal) {	// make illegal projectile will destroy directly in impact dealing
 			_this->hasImpacted = 1;
 			_this->eImpactResult = MissileProjectile::ImpactResult::IR_DESTROY;
 		}
@@ -173,7 +174,7 @@ namespace HookMisslePJ {
 
 	*/
 	static __forceinline MissileProjectile* Do_SpawnDealDmgProj(MissileProjectile* _this, BGSProjectile* base_pj, NiPoint3& new_proj_pos,
-																float nDamage = -1,float nSpdM = -1,float nRotX = -1,float nRotZ = -1) {
+		float nDamage = -1, float nSpdM = -1, float nRotX = -1, float nRotZ = -1) {
 		bool basepj_hitscan = false;
 		if ((base_pj->projFlags & BGSProjectile::kFlags_Hitscan) != 0) { // is hitscan
 			basepj_hitscan = true;
@@ -183,12 +184,23 @@ namespace HookMisslePJ {
 		if (nSpdM < 0) nSpdM = _this->speedMult;
 		if (nRotX < 0) nRotX = _this->rotX;
 		if (nRotZ < 0) nRotZ = _this->rotZ;
+		
+		Actor* Source_Ref = static_cast<Actor*>(_this->sourceRef);
+		//BulletMng.DisableMuzzleFlashNextTime(Source_Ref);
+		auto* muzzle_flash = ((HighProcess*)Source_Ref->baseProcess)->muzzleFlash;
+		UINT8 ogl_bEnable;
+		 
+		if (muzzle_flash){
+			ogl_bEnable = muzzle_flash->bEnabled;
+			muzzle_flash->bEnabled = 0;
+		}
 
-
-		MissileProjectile* newProj = (MissileProjectile*)Projectile::Spawn(base_pj, (static_cast<Actor*>(_this->sourceRef)), nullptr,
+		MissileProjectile* newProj = (MissileProjectile*)Projectile::Spawn(base_pj, Source_Ref, nullptr,
 			_this->sourceWeap, new_proj_pos, nRotZ, nRotX,
 			0, 0, _this->parentCell, /*ignoreGravity*/ 0);
+
 		if (basepj_hitscan) base_pj->projFlags |= BGSProjectile::kFlags_Hitscan;
+		if (muzzle_flash) muzzle_flash->bEnabled = ogl_bEnable;
 
 		newProj->impactDataList.RemoveAll();
 		newProj->hasImpacted = 0;
@@ -220,13 +232,13 @@ namespace HookMisslePJ {
 	}
 
 	// do penetrate proj spawn
-	static bool __fastcall Do_PenePJSpawn(MissileProjectile* _this,BGSProjectile* base_pj, TESObjectWEAP* base_weap,const Projectile::ImpactData* imp_data ) {
+	static bool __fastcall Do_PenePJSpawn(MissileProjectile* _this, BGSProjectile* base_pj, TESObjectWEAP* base_weap, const Projectile::ImpactData* imp_data) {
 		TESObjectREFR* imp_ref = imp_data->refr;
-		if (!imp_ref) { 
+		if (!imp_ref) {
 			BulletMng.EraseFromPeneMap(_this);
-			return false; 
+			return false;
 		}
-		if (BulletMng.NotInPeneMap(_this) && BulletMng.NotInRicoMap(_this) ) {	// first hit, Not pene or rico
+		if (BulletMng.NotInPeneMap(_this) && BulletMng.NotInRicoMap(_this)) {	// first hit, Not pene or rico
 			auto new_pj_state = NewPenePJStats(_this, imp_ref, (Actor*)_this->sourceRef, base_weap, base_pj, imp_data->hitLocation, imp_data->materialType);// first hit
 			if (!new_pj_state.Pene) return false;
 			NiPoint3 new_pos = NewPosBasedDepth_Pene(_this, new_pj_state.penetrate_depth);
@@ -237,16 +249,16 @@ namespace HookMisslePJ {
 				BulletMng.GoInPeneMap(new_proj, imp_ref, imp_data->pos, imp_data->materialType, new_pj_state.penetrate_depth, new_pj_state.newAPScore, 1);
 			}
 		}
-		else if (!BulletMng.NotInRicoMap(_this)){							// ricochet hit.
+		else if (!BulletMng.NotInRicoMap(_this)) {							// ricochet hit.
 			return false;
 		}
-		else if (IsFlagOn(MultiPenetrate) ) {								// allow penetrate projectile do penetrate
-			if (auto pene_ret = BulletMng.IsPenetrateProj(_this); pene_ret.find_pene){
+		else if (IsFlagOn(MultiPenetrate)) {								// allow penetrate projectile do penetrate
+			if (auto pene_ret = BulletMng.IsPenetrateProj(_this); pene_ret.find_pene) {
 				auto& _pene_info = pene_ret.pene_info;
 				auto new_pj_state = NewPenePJStats(_this, imp_ref, (Actor*)_this->sourceRef, base_weap, base_pj, imp_data->hitLocation, imp_data->materialType, _pene_info.Pene_Times, _pene_info.APScore);// penetrate hit
-				if (!new_pj_state.Pene) { 
+				if (!new_pj_state.Pene) {
 					BulletMng.EraseFromPeneMap(_this);
-					return false; 
+					return false;
 				}
 				NiPoint3 new_pos = NewPosBasedDepth_Pene(_this, new_pj_state.penetrate_depth);
 
@@ -258,8 +270,8 @@ namespace HookMisslePJ {
 			}
 			BulletMng.EraseFromPeneMap(_this);
 		}
-		else { 
-			BulletMng.EraseFromPeneMap(_this); 
+		else {
+			BulletMng.EraseFromPeneMap(_this);
 			return false;
 		}
 		return true;
@@ -267,16 +279,16 @@ namespace HookMisslePJ {
 
 
 	// do rico proj spawn
-	static MissileProjectile* __fastcall Do_RicoPJSpawn(MissileProjectile* _this, BGSProjectile* base_pj, TESObjectWEAP* base_weap, const Projectile::ImpactData* imp_data,float backward_chance = 0) {
+	static MissileProjectile* __fastcall Do_RicoPJSpawn(MissileProjectile* _this, BGSProjectile* base_pj, TESObjectWEAP* base_weap, const Projectile::ImpactData* imp_data, float backward_chance = 0) {
 		TESObjectREFR* imp_ref = (!imp_data->refr) ? nullptr : imp_data->refr;
 		NiPoint3 Pos;
-		SetPosBasedDepth_Backward(_this,8, Pos);
+		SetPosBasedDepth_Backward(_this, 8, Pos);
 		auto new_rc_info = NewRicoPJStats(_this, base_pj, backward_chance);
 		if (!new_rc_info.Rico) return nullptr;
-		
-		if (BulletMng.NotInRicoMap(_this) && BulletMng.NotInPeneMap(_this) ) {	// first hit - not ricochet and not penetrate bullet do ricochet
+
+		if (BulletMng.NotInRicoMap(_this) && BulletMng.NotInPeneMap(_this)) {	// first hit - not ricochet and not penetrate bullet do ricochet
 			if (MissileProjectile* rico_pj = Do_SpawnDealDmgProj(_this, base_pj, Pos, new_rc_info.newDmg, new_rc_info.newSpeedMult, new_rc_info.newRX, new_rc_info.newRZ)) {
-				RandomlyPlayRicoSound(rico_pj,*_this->GetPos());
+				RandomlyPlayRicoSound(rico_pj, *_this->GetPos());
 				BulletMng.GoInRicoMap(rico_pj, imp_ref, *_this->GetPos(), 1);
 				return rico_pj;
 			}
@@ -313,9 +325,9 @@ namespace HookMisslePJ {
 		auto* base_pj = static_cast<BGSProjectile*>(_this->baseForm);
 		auto* base_wp = static_cast<TESObjectWEAP*>(_this->sourceWeap);
 		if (!base_pj || !base_wp) return ret;
-		
+
 		float BackwardChcance = BulletMng.GetBackwardChance(_this);
-		if (!Do_PenePJSpawn(_this, base_pj, base_wp, imp_data)){
+		if (!Do_PenePJSpawn(_this, base_pj, base_wp, imp_data)) {
 			if (IsFlagOn(Ricochet)) Do_RicoPJSpawn(_this, base_pj, base_wp, imp_data, BackwardChcance);
 		}
 		return ret;
@@ -326,7 +338,7 @@ namespace HookMisslePJ {
 		BulletMng.EraseFromRicoMap(_this);
 		return ThisStdCall<Projectile*>(proj_destroy_vtfun, _this, flag);
 	}
-	
+
 	
 
 	static inline void InstallHook()
@@ -335,7 +347,7 @@ namespace HookMisslePJ {
 		overwrite_pj_impact.WriteRelCall(0x9B8BD8, UINT32(PJ_Impact_Hook_9B8BD8));
 		//overwrite_pj_impact.WriteRelCall(0x9B8BD8, UINT32(PJ_Impact_Hook_Rico));
 		proj_destroy_vtfun = DetourVtable(0x108FA54, UInt32(MissileProjectileDestroyVF));
-		
+
 	}
 }
 

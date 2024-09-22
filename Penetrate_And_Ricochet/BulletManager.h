@@ -4,7 +4,6 @@
 #include "GameObjects.h"
 #include "NiPoint.h"
 #include "Gathering_Code.h"
-#include <variant>
 #include <array>
 #include "internal/class_vtbls.h"
 #include "RoughINIReader.h"
@@ -188,6 +187,7 @@ namespace HookMisslePJ {
 		std::array<float, 12> MaterialPenalty{ 0 };		// For Pene
 		std::array<float, 12> MaterialChance{ 0 };		// For Rico, Ricochet Chance Only Apply To Ricochet
 		
+		
 
 		__forceinline auto IsRicoProj(Projectile* _Proj){
 			struct rico_ret {
@@ -195,7 +195,7 @@ namespace HookMisslePJ {
 				Rico_Info rico_info;
 			};
 			//gLog.FormattedMessage("CheckNotInMap %x", _Proj->refID);
-			if (auto RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
+			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
 				if (!RicoIter->second.RicoPJ) return rico_ret{ false,Rico_Info{} };
 				return rico_ret{ true,RicoIter->second };
 			}
@@ -208,7 +208,7 @@ namespace HookMisslePJ {
 				Pene_Info pene_info;
 			};
 			//gLog.FormattedMessage("CheckNotInMap %x", _Proj->refID);
-			if (auto PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
+			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
 				if (!PENEIter->second.PenePJ) return pene_ret{ false,Pene_Info{} };
 				return pene_ret{ true,PENEIter->second };
 			}
@@ -217,17 +217,17 @@ namespace HookMisslePJ {
 
 		__forceinline bool AllowMultiPene(Projectile* _Proj) {
 			if (IsFlagOn(MultiPenetrate)) return true;
-			if (auto pene_ret = IsPenetrateProj(_Proj); pene_ret.find_pene) {
+			if (const auto& pene_ret = IsPenetrateProj(_Proj); pene_ret.find_pene) {
 				return pene_ret.pene_info.Pene_Times >= 1;
 			}
 			return true;
 		}
 
 		__forceinline float GetBackwardChance(Projectile* _Proj) {
-			if (auto pene_ret = IsPenetrateProj(_Proj); pene_ret.find_pene) {
+			if (const auto& pene_ret = IsPenetrateProj(_Proj); pene_ret.find_pene) {
 				return pene_ret.pene_info.Pene_Times;
 			}
-			if (auto rico_ret = IsRicoProj(_Proj); rico_ret.find_rico) {
+			if (const auto& rico_ret = IsRicoProj(_Proj); rico_ret.find_rico) {
 				return rico_ret.rico_info.Rico_Times;
 			}
 			return 0;
@@ -235,14 +235,14 @@ namespace HookMisslePJ {
 
 		__forceinline bool AllowMultiRico(Projectile* _Proj) {
 			if (IsFlagOn(MultiRicochet)) return true;
-			if (auto rico_ret = IsRicoProj(_Proj);rico_ret.find_rico) {
+			if (const auto& rico_ret = IsRicoProj(_Proj);rico_ret.find_rico) {
 				return rico_ret.rico_info.Rico_Times >= 1;
 			}
 			return true;
 		}
 
 		__forceinline bool NotInRicoMap(Projectile* _Proj) {
-			if (auto RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
+			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
 				if (!RicoIter->second.RicoPJ) return true;
 				return false;
 			}
@@ -250,7 +250,7 @@ namespace HookMisslePJ {
 		}
 
 		__forceinline bool NotInPeneMap(Projectile* _Proj) {
-			if (auto PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
+			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
 				if (!PENEIter->second.PenePJ) return true;
 				return false;
 			}
@@ -258,14 +258,14 @@ namespace HookMisslePJ {
 		}
 
 		__forceinline void GoInPeneMap(Projectile* _Proj,const NiVector3& _pos, const UINT32& material, const float& expect_depth,const float& ap_score,UINT8 pene_times){
-			if (auto PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
+			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
 				if (!PENEIter->second.PenePJ) PENEIter->second.PenePJ = _Proj;
 			}
 			else PENEMap.try_emplace(_Proj->refID, Pene_Info{ _Proj,nullptr,_pos,material,expect_depth,ap_score,pene_times });
 		}
 
 		__forceinline void GoInPeneMap(Projectile* _Proj, TESObjectREFR* _imp_ref,const NiVector3& _pos,const UINT32& material,const float& expect_depth, const float& ap_score, UINT8 pene_times){
-			if (auto PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
+			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
 				if (auto& pene_info = PENEIter->second; !pene_info.PenePJ) {
 					pene_info = Pene_Info{ _Proj,_imp_ref,_pos,material,expect_depth,ap_score,pene_times };
 				}
@@ -274,7 +274,7 @@ namespace HookMisslePJ {
 		}
 
 		__forceinline void GoInRicoMap(Projectile* _Proj,TESObjectREFR* _imp_ref, const NiVector3& begin_pos, UINT8 pene_times) {
-			if (auto RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
+			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
 				if (auto& rico_info = RicoIter->second; !rico_info.RicoPJ) {
 					rico_info = Rico_Info{ _Proj,_imp_ref,begin_pos,pene_times };
 				}
@@ -283,11 +283,11 @@ namespace HookMisslePJ {
 		}
 
 		__forceinline void EraseFromPeneMap(Projectile* _Proj){
-			if (auto PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) PENEMap.erase(PENEIter);
+			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) PENEMap.erase(PENEIter);
 		}
 
 		__forceinline void EraseFromRicoMap(Projectile* _Proj) {
-			if (auto RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) RICOMap.erase(RicoIter);
+			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) RICOMap.erase(RicoIter);
 		}
 
 		static __forceinline BulletManager& bullet_manager_instance() {
@@ -439,7 +439,7 @@ namespace HookMisslePJ {
 	===== AngleCompensation =====
 	deal with the situation when the rot > 3.14
 	*/
-#define AngleCompensation_Z(x) x = (x - Double_PI) * (-sgn(x))
+#define AngleCompensation_Z(x) x -= (Double_PI * (-sgn(x))) 
 
 #define AngleCompensation_Rico_X(x) x = (std::fabs(x) - PI) * sgn(x)
 #define AngleCompensation_Pene_X(x) x = (PI - std::fabs(x)) * sgn(x)
