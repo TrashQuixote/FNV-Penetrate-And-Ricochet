@@ -1,18 +1,28 @@
 #pragma once
+#include "nvse/PluginAPI.h"
+#include "nvse/GameData.h"
+#include "nvse/SafeWrite.h"
+#include "nvse/NiObjects.h"
 #include "GameForms.h"
 #include "GameObjects.h"
 #include "NiPoint.h"
 #include "NiObjects.h"
 #include "internal/class_vtbls.h"
+#include "GameExtraData.h"
 
+using _FactionListData = TESActorBaseData::FactionListData;
 
 #define ADDR_ReturnTrue			0x8D0360
+#define UseInventoryThings 0
+#define UnuseInThisPlugin 1
+
+//#if UnuseInThisPlugin 
 typedef InventoryRef* (*_InventoryRefGetForID)(UInt32 refID);
 extern _InventoryRefGetForID InventoryRefGetForID;
 
 typedef TESObjectREFR* (__stdcall* _InventoryRefCreate)(TESObjectREFR* container, TESForm* itemForm, SInt32 countDelta, ExtraDataList* xData);
 extern _InventoryRefCreate InventoryRefCreate;
-
+//#endif
 
 class BSTaskletData
 {
@@ -434,6 +444,7 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 		return nullptr;
 	}
 
+
 // From Tweaks
 Projectile* __cdecl Projectile::Spawn(BGSProjectile* projectile, Actor* source, CombatController* combatCtrl, TESObjectWEAP* sourceWeap,
 	NiPoint3 pos, float rotZ, float rotX, float angularMomentumZ, float angularMomentumX, TESObjectCELL* cell, bool ignoreGravity)
@@ -485,6 +496,7 @@ static __forceinline void AddInfoToSpawnPJ(Projectile* _pj,Actor* _src) {
 	Projectile_SetUNK120(_pj,Info);
 }
 
+//#if UnuseInThisPlugin 
 double __fastcall GetArmorEffectiveDX(TESObjectREFR* thisObj, UInt32 funcAddr)
 {
 	if (!thisObj) return 0;
@@ -565,6 +577,7 @@ float __forceinline GetArmorDT(Actor* _actor) {
 	return GetArmorEffectiveDX(GetEquippedItemRef(_actor, 9), 0x4BE0B0);
 }
 
+
 float GetP2PRayCastRange(const NiVector3& vec_a,const NiVector3& vec_b)
 {
 	gLog.FormattedMessage("vec_a X-%.2f,Y-%.2f,Z-%.2f", vec_a.x,vec_a.y,vec_a.z);
@@ -582,7 +595,7 @@ float GetP2PRayCastRange(const NiVector3& vec_a,const NiVector3& vec_b)
 	}
 	return -1;
 }
-
+//#endif
 
 
 struct _Sound
@@ -857,5 +870,4 @@ static TESSound* GetClonedTESSoundForRico(UINT32 form_id) {
 	gLog.Message("clonded_sound has created");
 	return clonded_sound;
 }
-
 

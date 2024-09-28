@@ -1,15 +1,5 @@
-﻿#pragma once
-#include "nvse/PluginAPI.h"
-#include "nvse/GameObjects.h"
-#include "nvse/GameData.h"
-#include "nvse/SafeWrite.h"
-#include "nvse/NiObjects.h"
-#include "Gathering_Code.h"
-#include "internal/class_vtbls.h"
-#include <set>
-#include <random>
+﻿
 #include "BulletManager.h"
-#include <unordered_set>
 //#include "utilities/IConsole.h"
 //NoGore is unsupported in xNVSE
 
@@ -24,6 +14,10 @@ _InventoryRefCreate InventoryRefCreate;
 
 static CallDetour overwrite_pj_impact{};
 static CallDetour overwrite_ReloadMuzzleFlash{};
+
+static CallDetour overwrite_impact_sound1{};
+static CallDetour overwrite_impact_sound2{};
+
 static UINT32 proj_destroy_vtfun;
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
@@ -144,8 +138,7 @@ namespace HookMisslePJ {
 	static __forceinline bool Is_Illegal_Impact(MissileProjectile* _this) {
 		bool is_illegal = false;
 		if (auto pene_ret = BulletMng.IsPenetrateProj(_this); pene_ret.find_pene) {
-			NiVector3 cur_hit_pos = *_this->GetPos();
-			if (Point3Distance(pene_ret.pene_info.LastHitPos, cur_hit_pos) < pene_ret.pene_info.ExpectDepth) {
+			if (Point3Distance(pene_ret.pene_info.LastHitPos, *_this->GetPos()) < pene_ret.pene_info.ExpectDepth) {
 				BulletMng.EraseFromPeneMap(_this);
 				is_illegal = true;
 			}
@@ -184,13 +177,13 @@ namespace HookMisslePJ {
 		if (nSpdM < 0) nSpdM = _this->speedMult;
 		if (nRotX < 0) nRotX = _this->rotX;
 		if (nRotZ < 0) nRotZ = _this->rotZ;
-		
+
 		Actor* Source_Ref = static_cast<Actor*>(_this->sourceRef);
 		//BulletMng.DisableMuzzleFlashNextTime(Source_Ref);
 		auto* muzzle_flash = ((HighProcess*)Source_Ref->baseProcess)->muzzleFlash;
 		UINT8 ogl_bEnable;
-		 
-		if (muzzle_flash){
+
+		if (muzzle_flash) {
 			ogl_bEnable = muzzle_flash->bEnabled;
 			muzzle_flash->bEnabled = 0;
 		}
@@ -310,12 +303,21 @@ namespace HookMisslePJ {
 		return nullptr;
 	}
 
+	/*
+	static void __forceinline PrintProjPos(MissileProjectile* _this,bool isBefore) {
+		if (isBefore)gLog.FormattedMessage("Before Proj Pos { %.2f, %.2f, %.2f}", _this->posX, _this->posY, _this->posZ);
+		else gLog.FormattedMessage("After Proj Pos { %.2f, %.2f, %.2f}", _this->posX, _this->posY, _this->posZ);
+	}
+	*/
+
 	// impact - call pene spawn
 	static bool __fastcall PJ_Impact_Hook_9B8BD8(MissileProjectile* _this, void* edx) {
 		if (!_this) return ThisStdCall(overwrite_pj_impact.GetOverwrittenAddr(), _this);
 		if (Is_Illegal_Impact(_this)) return ThisStdCall(overwrite_pj_impact.GetOverwrittenAddr(), _this);
 
+		//PrintProjPos(_this,true);
 		bool ret = ThisStdCall(overwrite_pj_impact.GetOverwrittenAddr(), (Projectile*)_this);
+		//PrintProjPos(_this,false);
 		if (!ret) return ret;
 		if (PJIsExplosion(_this)) return ret;
 		if (!_this->sourceRef || !IS_ACTOR(_this->sourceRef)) return ret;
@@ -341,12 +343,71 @@ namespace HookMisslePJ {
 
 	
 
+	static TESSound* __fastcall GetImpactDataSound1_Hook(BGSImpactData* _this, MissileProjectile* _impact_pj, TESObjectREFR* imp_ref,UInt32 hit_material) {
+		auto* tes_sound = ThisStdCall<TESSound*>(overwrite_impact_sound1.GetOverwrittenAddr(), _this);
+		if (tes_sound && _impact_pj && IS_TYPE(_impact_pj, MissileProjectile))
+			if (const auto& pene_ret = BulletMng.IsPenetrateProj(_impact_pj) ; pene_ret.find_pene)
+				if (const auto& pene_info = pene_ret.pene_info; pene_info.impact_ref == imp_ref || pene_info.lastHitMaterial == hit_material)
+					if (Point3Distance(pene_info.LastHitPos, *_impact_pj->GetPos()) < pene_info.ExpectDepth * 3)
+						return nullptr;
+		return tes_sound;
+	}
+
+	static TESSound* __fastcall GetImpactDataSound2_Hook(BGSImpactData* _this, MissileProjectile* _impact_pj, TESObjectREFR* imp_ref, UInt32 hit_material) {
+		// Do Chcek
+		auto* tes_sound = ThisStdCall<TESSound*>(overwrite_impact_sound2.GetOverwrittenAddr(), _this);
+		if (tes_sound && _impact_pj && IS_TYPE(_impact_pj, MissileProjectile))
+			if (const auto& pene_ret = BulletMng.IsPenetrateProj(_impact_pj); pene_ret.find_pene)
+				if (const auto& pene_info = pene_ret.pene_info; pene_info.impact_ref == imp_ref || pene_info.lastHitMaterial == hit_material)
+					if (Point3Distance(pene_info.LastHitPos, *_impact_pj->GetPos()) < pene_info.ExpectDepth * 3) 
+						return nullptr;
+		return tes_sound;
+	}
+
+	static __declspec(naked) void Caller_9C2B69() {
+		__asm {
+			mov edx,ebp
+
+			push ebp
+			mov ebp, esp
+
+			push [edx + 0x18]				// hitmaterial
+			push [edx + 0x8]				// impact_refr
+			mov edx, [edx - 0x2B8]			// Projectile *
+			call GetImpactDataSound1_Hook
+
+			mov esp, ebp
+			pop ebp
+			ret
+		}
+	}
+	 
+	static __declspec(naked) void Caller_9C2BED() {
+		__asm {
+			mov edx, ebp
+
+			push ebp
+			mov ebp, esp
+
+			push[edx + 0x18]				// hitmaterial
+			push[edx + 0x8]					// impact_refr
+			mov edx, [edx - 0x2B8]			// Projectile *
+			call GetImpactDataSound2_Hook
+
+			mov esp, ebp
+			pop ebp
+			ret
+		}
+	}
+
 	static inline void InstallHook()
 	{
 		//INIT_Bullet_Flag();
 		overwrite_pj_impact.WriteRelCall(0x9B8BD8, UINT32(PJ_Impact_Hook_9B8BD8));
-		//overwrite_pj_impact.WriteRelCall(0x9B8BD8, UINT32(PJ_Impact_Hook_Rico));
 		proj_destroy_vtfun = DetourVtable(0x108FA54, UInt32(MissileProjectileDestroyVF));
+
+		overwrite_impact_sound1.WriteRelCall(0x9C2B69,UINT32(Caller_9C2B69));
+		overwrite_impact_sound2.WriteRelCall(0x9C2BED,UINT32(Caller_9C2BED));
 
 	}
 }

@@ -1,11 +1,8 @@
 #pragma once
 
-#include "GameForms.h"
-#include "GameObjects.h"
-#include "NiPoint.h"
 #include "Gathering_Code.h"
+#include <random>
 #include <array>
-#include "internal/class_vtbls.h"
 #include "RoughINIReader.h"
 
 template<typename T>
@@ -28,6 +25,7 @@ namespace HookMisslePJ {
 	static float penetrate_dmg_threshold = 12;
 	static float penetrate_speed_threshold = 21760;
 	static float penetrate_base_depth = 16;
+	static float penetrate_furniture_depth = 4;
 	static float penetrate_human_base_depth = 32;
 	static float penetrate_max_depth = 48;
 	static float penetrate_deviationX_mult = 1;
@@ -36,6 +34,8 @@ namespace HookMisslePJ {
 	static float penetrate_max_deviationZ = 30;
 	static float penetrate_base_chance = 80;
 	static float penetrate_ap_dmg_threshold = 36;
+	static float penetrate_hollow_buffscale = 1.0;
+	static float penetrate_ap_buffscale = 1.0;
 
 	static float ricochet_max_rotX = 30;
 	static float ricochet_max_rotZ = 60;
@@ -142,9 +142,9 @@ namespace HookMisslePJ {
 		float ExpectDepth = 0;
 		float APScore = 0;
 		Pene_Info() {};
-		Pene_Info(Projectile* _pene_pj, TESObjectREFR* _impact_ref, const NiVector3& _last_hit,const UINT32 _hit_material,const float& expect_depth,const float& AP_Score,UINT8 pene_times) :
+		Pene_Info(Projectile* _pene_pj, TESObjectREFR* _impact_ref, const NiVector3& _last_hit,UINT32 _hit_material,float expect_depth,float AP_Score,UINT8 pene_times) :
 						PenePJ(_pene_pj), impact_ref(_impact_ref), LastHitPos(_last_hit),lastHitMaterial(_hit_material), ExpectDepth(expect_depth), APScore(AP_Score), Pene_Times(pene_times){}
-		Pene_Info(Projectile* _pene_pj, TESObjectREFR* _impact_ref, const NiVector3& _last_hit) :PenePJ(_pene_pj), impact_ref(_impact_ref), LastHitPos(_last_hit) {}
+		//Pene_Info(Projectile* _pene_pj, TESObjectREFR* _impact_ref, const NiVector3& _last_hit) :PenePJ(_pene_pj), impact_ref(_impact_ref), LastHitPos(_last_hit) {}
 	};
 
 	struct Rico_Info {
@@ -153,7 +153,8 @@ namespace HookMisslePJ {
 		NiVector3 LastHitPos{ 0,0,0 };
 		UINT8 Rico_Times = 0;
 		Rico_Info() {};
-		Rico_Info(Projectile* _rico_pj,TESObjectREFR* _impact_ref,const NiVector3& _hit_pos,UINT8 _rico_times) :RicoPJ(_rico_pj), LastHitPos(_hit_pos), impact_ref(_impact_ref), Rico_Times(_rico_times) {}
+		Rico_Info(Projectile* _rico_pj,TESObjectREFR* _impact_ref,const NiVector3& _hit_pos,UINT8 _rico_times) :
+			RicoPJ(_rico_pj), LastHitPos(_hit_pos), impact_ref(_impact_ref), Rico_Times(_rico_times) {}
 	};
 
 
@@ -257,20 +258,13 @@ namespace HookMisslePJ {
 			return true;
 		}
 
-		__forceinline void GoInPeneMap(Projectile* _Proj,const NiVector3& _pos, const UINT32& material, const float& expect_depth,const float& ap_score,UINT8 pene_times){
-			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
-				if (!PENEIter->second.PenePJ) PENEIter->second.PenePJ = _Proj;
-			}
-			else PENEMap.try_emplace(_Proj->refID, Pene_Info{ _Proj,nullptr,_pos,material,expect_depth,ap_score,pene_times });
-		}
-
-		__forceinline void GoInPeneMap(Projectile* _Proj, TESObjectREFR* _imp_ref,const NiVector3& _pos,const UINT32& material,const float& expect_depth, const float& ap_score, UINT8 pene_times){
+		__forceinline void GoInPeneMap(Projectile* _Proj, TESObjectREFR* _imp_ref,const NiVector3& _pos,UINT32 material,float expect_depth, float ap_score, UINT8 pene_times){
 			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
 				if (auto& pene_info = PENEIter->second; !pene_info.PenePJ) {
-					pene_info = Pene_Info{ _Proj,_imp_ref,_pos,material,expect_depth,ap_score,pene_times };
+					pene_info = Pene_Info{ _Proj,_imp_ref,_pos,material,expect_depth,ap_score,pene_times};
 				}
 			}
-			else PENEMap.try_emplace(_Proj->refID, Pene_Info{ _Proj,_imp_ref,_pos,material,expect_depth,ap_score,pene_times });
+			else PENEMap.try_emplace(_Proj->refID, Pene_Info{ _Proj,_imp_ref,_pos,material,expect_depth,ap_score,pene_times});
 		}
 
 		__forceinline void GoInRicoMap(Projectile* _Proj,TESObjectREFR* _imp_ref, const NiVector3& begin_pos, UINT8 pene_times) {
@@ -420,8 +414,6 @@ namespace HookMisslePJ {
 	}
 
 	static __forceinline NiPoint3 NewPosBasedDepth_Pene(Projectile* PJRef, float Depth) {
-		if (Depth < penetrate_base_depth) Depth = penetrate_base_depth;
-		else if (Depth > penetrate_max_depth) Depth = penetrate_max_depth;
 		NiVector3 Direction = PJRef->UnitVector;
 		const NiVector3* OriginPos = PJRef->GetPos();
 		return NiPoint3{ (OriginPos->x + (Direction.x * Depth)) ,(OriginPos->y + (Direction.y * Depth)) ,(OriginPos->z + (Direction.z * Depth)) };
@@ -532,7 +524,8 @@ namespace HookMisslePJ {
 	_dDmg - the d-value
 	_oldAPScore - old AP Score
 	*/
-	static __forceinline void SetPeneAttribute(TESObjectREFR* imp_ref,SInt32 hit_location,float& _nPene_depth,float& _nAPScore,float& _nDmg,float& _dDmg,const float& _oldAPScore) {
+	static __forceinline void SetPeneAttribute(TESObjectREFR* imp_ref,SInt32 hit_location,
+												float& _nPene_depth,float& _nAPScore,float& _nDmg,float& _dDmg,const float& _oldAPScore) {
 		_nPene_depth += _oldAPScore;	// Old AP_Score decide depth. In fact it doesnt matter
 		_nAPScore += _oldAPScore;		// let New AP_Score = Old AP_Score
 		
@@ -540,7 +533,6 @@ namespace HookMisslePJ {
 			Actor* actor_ref = (Actor*)imp_ref;
 			float Actor_DT = 0;
 			if (!((Actor*)imp_ref)->IsCreature()) {			// character
-				_nPene_depth = penetrate_human_base_depth;	// Only for character use
 				if (IsFlagOn(LocalizedDTSupport)){
 					if (hit_location == 1) Actor_DT = GetHelmatDT(actor_ref);
 					else if (hit_location == 14 && actor_ref->IsWeaponOut()) {}
@@ -557,10 +549,20 @@ namespace HookMisslePJ {
 			_nAPScore -= _dDmg;			// AP Score will minus D-value of damage to get New AP Score
 			return;
 		}
+		//kFormType_TESFurniture
 		
 		_nDmg += _nAPScore;				// nDmg will Plus when AP,Minus when Hollow 
 		_nAPScore -= _dDmg;				// AP Score will minus D-value of damage to get New AP Score
 		return;
+	}
+
+	static void __forceinline SetPeneDepthAccordingImpactRefType(const TESObjectREFR* imp_ref,float& nPene_depth) {
+		if (nPene_depth < penetrate_base_depth) nPene_depth = penetrate_base_depth;
+		else if (nPene_depth > penetrate_max_depth) nPene_depth = penetrate_max_depth;
+
+		if (!imp_ref) return;
+		else if (IS_ACTOR(imp_ref)) nPene_depth = penetrate_human_base_depth;
+		//else if (IS_TYPE(imp_ref, TESFurniture)) nPene_depth = penetrate_furniture_depth;
 	}
 
 	/*
@@ -588,7 +590,7 @@ namespace HookMisslePJ {
 		float dDmg = ThisProj->hitDamage - nDmg;
 		float nAPScore = 0;
 		//gLog.FormattedMessage("impact_material %u,pene_times %u, OldAPScore %.2f, PjHitdmg %.2f", impact_material, pene_times, OldAPScore, ThisProj->hitDamage);
-		
+
 		if (pene_times == 0){	// When Pene_Times is 0 means it is the first hit ,it needs to calc the ap_score
 			BulletInfo bullet_info = CheckBulletTypeByAmmoEffect(GetCurEqAmmo(bs_weap, PJSrc), ThisProj);
 			SetPeneAttribute(imp_ref, hit_location,nPene_depth, nAPScore, nDmg, dDmg, bullet_info.AP_Score);
@@ -599,10 +601,15 @@ namespace HookMisslePJ {
 
 		if (nDmg < penetrate_dmg_threshold) return NewPenePJInfo{ false,0,0,0,0 };
 		if (nDmg > ThisProj->hitDamage) nDmg = ThisProj->hitDamage;
-		if (nDmg > penetrate_ap_dmg_threshold) { 
-			nAPScore += (nDmg - penetrate_ap_dmg_threshold);
-			nPene_depth += nAPScore;
+		if (nDmg > penetrate_ap_dmg_threshold) {
+			float extra_ap_ability = nDmg - penetrate_ap_dmg_threshold;
+			nAPScore += extra_ap_ability;
+			nPene_depth += extra_ap_ability;
 		};
+
+		SetPeneDepthAccordingImpactRefType(imp_ref, nPene_depth);
+		if (nAPScore > 0) nAPScore *= penetrate_ap_buffscale;
+		else if (nAPScore < 0) nAPScore *= penetrate_hollow_buffscale;
 
 		float SpeedScale = nDmg / ThisProj->hitDamage;
 		float nSpdM = ThisProj->speedMult * std::sqrtf(SpeedScale);
@@ -672,22 +679,22 @@ namespace HookMisslePJ {
 		penetrate_base_chance = raw_type_val.empty() ? 80 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "BasePenetrateDepth");
-		penetrate_base_depth = raw_type_val.empty() ? 32 : (std::stof(raw_type_val));
+		penetrate_base_depth = raw_type_val.empty() ? 16 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "MaxPenetrateDepth");
-		penetrate_max_depth = raw_type_val.empty() ? 96 : (std::stof(raw_type_val));
+		penetrate_max_depth = raw_type_val.empty() ? 48 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "HumanBeingPenetrateDepth");
-		penetrate_human_base_depth = raw_type_val.empty() ? 96 : (std::stof(raw_type_val));
+		penetrate_human_base_depth = raw_type_val.empty() ? 32 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "SpeedThreshold");
 		penetrate_speed_threshold = raw_type_val.empty() ? 21760 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "VerticalDeviationMult");
-		penetrate_deviationX_mult = raw_type_val.empty() ? 1 : (std::stof(raw_type_val));
+		penetrate_deviationX_mult = raw_type_val.empty() ? 1.0 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "HorizontalDeviationMult");
-		penetrate_deviationZ_mult = raw_type_val.empty() ? 1 : (std::stof(raw_type_val));
+		penetrate_deviationZ_mult = raw_type_val.empty() ? 1.0 : (std::stof(raw_type_val));
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "MaxVerticalDeviation");
 		penetrate_max_deviationX = raw_type_val.empty() ? 10 : (std::stof(raw_type_val));
@@ -697,6 +704,12 @@ namespace HookMisslePJ {
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "APDamageThreshold");
 		penetrate_ap_dmg_threshold = raw_type_val.empty() ? 36 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "APBuffscale");
+		penetrate_ap_buffscale = raw_type_val.empty() ? 1.0 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "HollowBuffScale");
+		penetrate_hollow_buffscale = raw_type_val.empty() ? 1.0 : (std::stof(raw_type_val));
 // ricochet config
 		raw_type_val = _ini.GetRawTypeVal("RicochetGeneral", "SpeedThreshold");
 		ricochet_speed_threshold = raw_type_val.empty() ? 6400 : (std::stof(raw_type_val));
@@ -773,11 +786,13 @@ namespace HookMisslePJ {
 		gLog.FormattedMessage("ricochet_damage_threshold %f", ricochet_damage_threshold);
 		gLog.FormattedMessage("ricochet_max_rotX %f", ricochet_max_rotX);
 		gLog.FormattedMessage("ricochet_max_rotZ %f", ricochet_max_rotZ);
+		gLog.FormattedMessage("penetrate_ap_buffscale %f", penetrate_ap_buffscale);
+		gLog.FormattedMessage("penetrate_hollow_buffscale %f", penetrate_hollow_buffscale);
 
-		for (auto iter = BulletManager::bullet_manager_instance().MaterialPenalty.begin(); iter != BulletManager::bullet_manager_instance().MaterialPenalty.end(); iter++)
-		{
-			gLog.FormattedMessage("MP %f",*iter);
-		} 
+		//for (auto iter = BulletManager::bullet_manager_instance().MaterialPenalty.begin(); iter != BulletManager::bullet_manager_instance().MaterialPenalty.end(); iter++)
+		//{
+		//	gLog.FormattedMessage("MP %f",*iter);
+		//} 
 		return true;
 	}
 
