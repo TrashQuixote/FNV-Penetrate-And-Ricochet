@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Gathering_Code.h"
+#include "Gathering_Utility.h"
 #include <random>
 #include <array>
 #include "RoughINIReader.h"
@@ -14,7 +14,6 @@ template<typename T>
 constexpr int sgn(const T& a) noexcept {
 	return sgn(a, T(0));
 }
-
 namespace HookMisslePJ {
 	using formid = UInt32;
 	float constexpr DeToAg = 57.2957787;
@@ -42,6 +41,17 @@ namespace HookMisslePJ {
 	static float ricochet_speed_threshold = 6400;
 	static float ricochet_damage_threshold = 6;
 
+	static float impact_scaler_dmg_minline = 10;
+	static float impact_scaler_dmg_dmin_base = 20;
+	
+	static float impact_scaler_dmg_baseline = 30;
+
+	static float impact_scaler_dmg_dmax_base = 30;
+	static float impact_scaler_dmg_maxline = 60;
+	
+	static float impact_scaler_min = 0.5;
+	static float impact_scaler_max = 2.0;
+
 	static __forceinline NiNode* GetActorPJNode(Actor* _actor) {
 		if (_actor && _actor->baseProcess && !_actor->baseProcess->processLevel)return _actor->baseProcess->GetProjectileNode();
 		return nullptr;
@@ -49,7 +59,7 @@ namespace HookMisslePJ {
 
 	static __forceinline NiVector3 GetActorPJNodePos(Actor* _actor) {
 		if (auto* pj_node = GetActorPJNode(_actor)){
-			return pj_node->m_transformWorld.translate;
+			return pj_node->m_worldTranslate;
 		}
 		return { 0,0,0 };
 	}
@@ -133,6 +143,7 @@ namespace HookMisslePJ {
 #define IsMustPenetrateMaterial(type) (type == kMaterial_Grass || type == kMaterial_Cloth || type == kMaterial_Glass || type == kMaterial_Water )
 #define NotMustPenetrateMaterial(type) (type != kMaterial_Grass && type != kMaterial_Cloth && type != kMaterial_Glass && type != kMaterial_Water )
 
+	// record penetrate information
 	struct Pene_Info {
 		Projectile* PenePJ = nullptr;
 		TESObjectREFR* impact_ref = nullptr;
@@ -147,6 +158,7 @@ namespace HookMisslePJ {
 		//Pene_Info(Projectile* _pene_pj, TESObjectREFR* _impact_ref, const NiVector3& _last_hit) :PenePJ(_pene_pj), impact_ref(_impact_ref), LastHitPos(_last_hit) {}
 	};
 
+	// record rico information
 	struct Rico_Info {
 		Projectile* RicoPJ = nullptr;
 		TESObjectREFR* impact_ref = nullptr;
@@ -157,7 +169,6 @@ namespace HookMisslePJ {
 			RicoPJ(_rico_pj), LastHitPos(_hit_pos), impact_ref(_impact_ref), Rico_Times(_rico_times) {}
 	};
 
-
 	static UINT16 bullet_manager_flag = 0;
 
 	enum MngFlag {
@@ -166,7 +177,9 @@ namespace HookMisslePJ {
 		SpeedCalcForPene = 0x0004,
 		LocalizedDTSupport = 0x0008,
 		MultiPenetrate = 0x0010,
-		MultiRicochet = 0x0020
+		MultiRicochet = 0x0020,
+		ImpactScaler = 0x0040,
+		ExtraDecal = 0x0080
 	};
 
 
@@ -178,66 +191,136 @@ namespace HookMisslePJ {
 		bullet_manager_flag |= _flag;
 	}
 
+	struct DP_Info {
+		Projectile* dp_proj{nullptr};
+		float decal_size{0};
+		NiVector3 new_pos{ 0,0,0 };
+		DP_Info() {}
+		DP_Info(Projectile* _dp_proj,float imp_size, const NiVector3& _new_pj_pos) :dp_proj(_dp_proj), decal_size(imp_size), new_pos(_new_pj_pos) {}
+	};
+
+	// record projectiles which do penetrate
+	struct DoPeneProjMap {
+		std::unordered_map<formid, DP_Info> DPProjMap{};
+
+		__forceinline void GoInDPMap(Projectile* _dp_proj,const NiVector3& _new_pos) {
+			if (const auto& dp_iter = DPProjMap.find(_dp_proj->refID); dp_iter != DPProjMap.end()) {
+				auto& dp_info = dp_iter->second;
+				dp_info.decal_size = _dp_proj->decalSize;
+				dp_info.new_pos = _new_pos;
+			}
+			else DPProjMap.try_emplace(_dp_proj->refID, DP_Info{ _dp_proj,_dp_proj->decalSize,_new_pos });
+		}
+
+		__forceinline auto IsInDPMap(const Projectile* _dp_proj) {
+			struct ret_dp_info {
+				bool find_dp;
+				DP_Info* dp_info;
+
+				bool __forceinline Valid() const { return find_dp && dp_info; }
+			};
+			if (const auto& dp_iter = DPProjMap.find(_dp_proj->refID); dp_iter != DPProjMap.end()) {
+				DP_Info* dp_info_ptr = &dp_iter->second;
+				if (!dp_info_ptr || !dp_info_ptr->dp_proj) return ret_dp_info{ false,nullptr };
+				return ret_dp_info{ true,dp_info_ptr };
+			}
+			return ret_dp_info{ false,nullptr };
+		}
+
+		__forceinline void EraseFromMap(Projectile* _dp_proj) {
+			if (const auto& dp_iter = DPProjMap.find(_dp_proj->refID); dp_iter != DPProjMap.end())
+				DPProjMap.erase(dp_iter);
+		}
+
+		__forceinline bool MatchPos(const NiVector3& _impact_pos ) {
+			for (const auto& iter : DPProjMap){
+				if (CalcPosSquareDis(_impact_pos, *(iter.second.dp_proj->GetPos())) < 4.0f)
+					return true;
+			}
+			return false;
+		}
+	};
+
 	class BulletManager
 	{
 	public:
 		BulletManager(BulletManager&&) = delete;
-		
+		DoPeneProjMap fake_proj_map{};
 		std::unordered_map<formid, Pene_Info> PENEMap{};
 		std::unordered_map<formid, Rico_Info> RICOMap{};
 		std::array<float, 12> MaterialPenalty{ 0 };		// For Pene
 		std::array<float, 12> MaterialChance{ 0 };		// For Rico, Ricochet Chance Only Apply To Ricochet
 		
-		
+		__forceinline auto& GetDPProjMap() {
+			return fake_proj_map;
+		}
+
+		__forceinline void MarkAsDP(Projectile* _dp_proj,const NiVector3& _new_pos) {
+			GetDPProjMap().GoInDPMap(_dp_proj,_new_pos);
+		}
+
+		__forceinline auto IsDPProj(Projectile* _dp_proj) {
+			return GetDPProjMap().IsInDPMap(_dp_proj);
+		}
+
+		bool MatchDPProj(const NiVector3& _impact_pos) {
+			return GetDPProjMap().MatchPos(_impact_pos);
+		}
 
 		__forceinline auto IsRicoProj(Projectile* _Proj){
 			struct rico_ret {
 				bool find_rico;
-				Rico_Info rico_info;
+				Rico_Info* rico_info;
+
+				bool __forceinline Valid() const { return find_rico && rico_info; }
 			};
 			//gLog.FormattedMessage("CheckNotInMap %x", _Proj->refID);
 			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) {
-				if (!RicoIter->second.RicoPJ) return rico_ret{ false,Rico_Info{} };
-				return rico_ret{ true,RicoIter->second };
+				Rico_Info* rico_info_ptr = &RicoIter->second;
+				if (!rico_info_ptr || !rico_info_ptr->RicoPJ) return rico_ret{ false,nullptr };
+				return rico_ret{ true,rico_info_ptr };
 			}
-			return rico_ret{ false,Rico_Info{} };
+			return rico_ret{ false,nullptr };
 		}
 
 		__forceinline auto IsPenetrateProj(Projectile* _Proj){
 			struct pene_ret {
 				bool find_pene;
-				Pene_Info pene_info;
+				Pene_Info* pene_info;
+
+				bool __forceinline Valid() const { return find_pene && pene_info; }
 			};
 			//gLog.FormattedMessage("CheckNotInMap %x", _Proj->refID);
 			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) {
-				if (!PENEIter->second.PenePJ) return pene_ret{ false,Pene_Info{} };
-				return pene_ret{ true,PENEIter->second };
+				Pene_Info* pene_info_ptr = &PENEIter->second;
+				if (!pene_info_ptr || !pene_info_ptr->PenePJ) return pene_ret{ false,nullptr };
+				return pene_ret{ true, pene_info_ptr };
 			}
-			return pene_ret{ false,Pene_Info{} };
+			return pene_ret{ false,nullptr };
 		}
 
 		__forceinline bool AllowMultiPene(Projectile* _Proj) {
 			if (IsFlagOn(MultiPenetrate)) return true;
-			if (const auto& pene_ret = IsPenetrateProj(_Proj); pene_ret.find_pene) {
-				return pene_ret.pene_info.Pene_Times >= 1;
+			if (const auto& pene_ret = IsPenetrateProj(_Proj); pene_ret.Valid()) {
+				return pene_ret.pene_info->Pene_Times >= 1;
 			}
 			return true;
 		}
 
 		__forceinline float GetBackwardChance(Projectile* _Proj) {
-			if (const auto& pene_ret = IsPenetrateProj(_Proj); pene_ret.find_pene) {
-				return pene_ret.pene_info.Pene_Times;
+			if (const auto& pene_ret = IsPenetrateProj(_Proj); pene_ret.Valid()) {
+				return pene_ret.pene_info->Pene_Times;
 			}
-			if (const auto& rico_ret = IsRicoProj(_Proj); rico_ret.find_rico) {
-				return rico_ret.rico_info.Rico_Times;
+			if (const auto& rico_ret = IsRicoProj(_Proj); rico_ret.Valid()) {
+				return rico_ret.rico_info->Rico_Times;
 			}
 			return 0;
 		}
 
 		__forceinline bool AllowMultiRico(Projectile* _Proj) {
 			if (IsFlagOn(MultiRicochet)) return true;
-			if (const auto& rico_ret = IsRicoProj(_Proj);rico_ret.find_rico) {
-				return rico_ret.rico_info.Rico_Times >= 1;
+			if (const auto& rico_ret = IsRicoProj(_Proj);rico_ret.Valid()) {
+				return rico_ret.rico_info->Rico_Times >= 1;
 			}
 			return true;
 		}
@@ -277,11 +360,17 @@ namespace HookMisslePJ {
 		}
 
 		__forceinline void EraseFromPeneMap(Projectile* _Proj){
-			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) PENEMap.erase(PENEIter);
+			if (const auto& PENEIter = PENEMap.find(_Proj->refID); PENEIter != PENEMap.end()) 
+				PENEMap.erase(PENEIter);
 		}
 
 		__forceinline void EraseFromRicoMap(Projectile* _Proj) {
-			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) RICOMap.erase(RicoIter);
+			if (const auto& RicoIter = RICOMap.find(_Proj->refID); RicoIter != RICOMap.end()) 
+				RICOMap.erase(RicoIter);
+		}
+
+		__forceinline void EraseFromDPMap(Projectile* _do_pene_proj) {
+			GetDPProjMap().EraseFromMap(_do_pene_proj);
 		}
 
 		static __forceinline BulletManager& bullet_manager_instance() {
@@ -413,13 +502,13 @@ namespace HookMisslePJ {
 		return 0;
 	}
 
-	static __forceinline NiPoint3 NewPosBasedDepth_Pene(Projectile* PJRef, float Depth) {
+	static __forceinline NiVector3 NewPosBasedDepth_Pene(Projectile* PJRef, float Depth) {
 		NiVector3 Direction = PJRef->UnitVector;
 		const NiVector3* OriginPos = PJRef->GetPos();
-		return NiPoint3{ (OriginPos->x + (Direction.x * Depth)) ,(OriginPos->y + (Direction.y * Depth)) ,(OriginPos->z + (Direction.z * Depth)) };
+		return NiVector3{ (OriginPos->x + (Direction.x * Depth)) ,(OriginPos->y + (Direction.y * Depth)) ,(OriginPos->z + (Direction.z * Depth)) };
 	}
 
-	static __forceinline void SetPosBasedDepth_Backward(Projectile* PJRef, float Depth, NiPoint3& new_pos) {
+	static __forceinline void SetPosBasedDepth_Backward(Projectile* PJRef, float Depth, NiVector3& new_pos) {
 		NiVector3 ReverseDirection = ScaleVector(PJRef->UnitVector, NiVector3{-1,-1,-1});
 		const NiVector3* OriginPos = PJRef->GetPos();
 		new_pos.x = (OriginPos->x + (ReverseDirection.x * Depth));
@@ -496,7 +585,7 @@ namespace HookMisslePJ {
 		float new_pj_dmg = ThisProj->hitDamage;
 		float outRX = ThisProj->rotX, outRZ = ThisProj->rotZ;
 
-		if (RandMng.GetRand(0, 100) < 50)outRX *= -1;
+		if (RandMng.GetRand(0, 100) < 50) outRX *= -1;
 		float DeviateAngle_X = RandMng.GetRand(-ricochet_max_rotX, ricochet_max_rotX);
 		float DeviateAngle_Z = RandMng.GetRand(-ricochet_max_rotZ, ricochet_max_rotZ);
 		SetRicoAttribute(DeviateAngle_X, DeviateAngle_Z, new_pj_dmg, new_spdM);	// set projectile newdmg and newspedM
@@ -670,6 +759,14 @@ namespace HookMisslePJ {
 		temp_flag = raw_type_val.empty() ? 0 : static_cast<UINT16>(std::stoi(raw_type_val));
 		if (temp_flag > 0) SetFlagOn(MultiRicochet);
 
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "Enable");
+		temp_flag = raw_type_val.empty() ? 0 : static_cast<UINT16>(std::stoi(raw_type_val));
+		if (temp_flag > 0) SetFlagOn(ImpactScaler);
+
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "ExtraDecal");
+		temp_flag = raw_type_val.empty() ? 0 : static_cast<UINT16>(std::stoi(raw_type_val));
+		if (temp_flag > 0) SetFlagOn(ExtraDecal);
+
 		gLog.FormattedMessage("flag %u", bullet_manager_flag);
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateGeneral", "DamageThreshold");
@@ -717,11 +814,29 @@ namespace HookMisslePJ {
 		raw_type_val = _ini.GetRawTypeVal("RicochetGeneral", "DamageThreshold");
 		ricochet_damage_threshold = raw_type_val.empty() ? 6 : (std::stof(raw_type_val));
 
-		raw_type_val = _ini.GetRawTypeVal("RicochetGeneral", "ricochet_max_rotX");
+		raw_type_val = _ini.GetRawTypeVal("RicochetGeneral", "MaxVerticalDeviation");
 		ricochet_max_rotX = raw_type_val.empty() ? 30 : (std::stof(raw_type_val));
 
-		raw_type_val = _ini.GetRawTypeVal("RicochetGeneral", "ricochet_max_rotZ");
+		raw_type_val = _ini.GetRawTypeVal("RicochetGeneral", "MaxHorizontalDeviation");
 		ricochet_max_rotZ = raw_type_val.empty() ? 60 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "BaseDamage");
+		impact_scaler_dmg_baseline = raw_type_val.empty() ? 30 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "MinDamage");
+		impact_scaler_dmg_minline = raw_type_val.empty() ? 10 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "MaxDamage");
+		impact_scaler_dmg_maxline = raw_type_val.empty() ? 60 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "MinScaler");
+		impact_scaler_min = raw_type_val.empty() ? 0.5 : (std::stof(raw_type_val));
+
+		raw_type_val = _ini.GetRawTypeVal("ImpactScaler", "MaxScaler");
+		impact_scaler_max = raw_type_val.empty() ? 2.0 : (std::stof(raw_type_val));
+
+		impact_scaler_dmg_dmin_base = std::fabs(impact_scaler_dmg_baseline - impact_scaler_dmg_minline);
+		impact_scaler_dmg_dmax_base = std::fabs(impact_scaler_dmg_maxline - impact_scaler_dmg_baseline);
 
 		raw_type_val = _ini.GetRawTypeVal("PenetrateMaterialPenalty", "Stone");
 		BulletManager::bullet_manager_instance().MaterialPenalty[kMaterial_Stone] = raw_type_val.empty() ? 0.33 : (std::stof(raw_type_val));
@@ -787,7 +902,13 @@ namespace HookMisslePJ {
 		gLog.FormattedMessage("ricochet_max_rotX %f", ricochet_max_rotX);
 		gLog.FormattedMessage("ricochet_max_rotZ %f", ricochet_max_rotZ);
 		gLog.FormattedMessage("penetrate_ap_buffscale %f", penetrate_ap_buffscale);
-		gLog.FormattedMessage("penetrate_hollow_buffscale %f", penetrate_hollow_buffscale);
+		gLog.FormattedMessage("impact_scaler_dmg_baseline %f", impact_scaler_dmg_baseline);
+		gLog.FormattedMessage("impact_scaler_dmg_minline %f", impact_scaler_dmg_minline);
+		gLog.FormattedMessage("impact_scaler_dmg_maxline %f", impact_scaler_dmg_maxline);
+		gLog.FormattedMessage("impact_scaler_min %f", impact_scaler_min);
+		gLog.FormattedMessage("impact_scaler_max %f", impact_scaler_max);
+		gLog.FormattedMessage("impact_scaler_dmg_dmin_base %f", impact_scaler_dmg_dmin_base);
+		gLog.FormattedMessage("impact_scaler_dmg_dmax_base %f", impact_scaler_dmg_dmax_base);
 
 		//for (auto iter = BulletManager::bullet_manager_instance().MaterialPenalty.begin(); iter != BulletManager::bullet_manager_instance().MaterialPenalty.end(); iter++)
 		//{

@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include "nvse/PluginAPI.h"
 #include "nvse/GameData.h"
 #include "nvse/SafeWrite.h"
@@ -23,6 +24,14 @@ extern _InventoryRefGetForID InventoryRefGetForID;
 typedef TESObjectREFR* (__stdcall* _InventoryRefCreate)(TESObjectREFR* container, TESForm* itemForm, SInt32 countDelta, ExtraDataList* xData);
 extern _InventoryRefCreate InventoryRefCreate;
 //#endif
+
+
+void InitInv(const NVSEDataInterface* nvse_data) {
+	if (!nvse_data) return;
+	InventoryRefGetForID = (_InventoryRefGetForID)nvse_data->GetFunc(NVSEDataInterface::kNVSEData_InventoryReferenceGetForRefID);
+	InventoryRefCreate = (_InventoryRefCreate)nvse_data->GetFunc(NVSEDataInterface::kNVSEData_InventoryReferenceCreateEntry);
+}
+
 
 class BSTaskletData
 {
@@ -327,9 +336,10 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 		[[nodiscard]] TESObjectREFR* GetImpactRef() const;
 
 		[[nodiscard]] ImpactData* GetImpactData() const;
+		Projectile::ImpactData* GetImpactDataAlt() const;
 		// Copied from Tweaks
 		static Projectile* __cdecl Spawn(BGSProjectile* projectile, Actor* source, CombatController* combatCtrl, TESObjectWEAP* sourceWeap,
-			NiPoint3 pos, float rotZ, float rotX, float angularMomentumZ, float angularMomentumX, TESObjectCELL* cell,
+			NiVector3 pos, float rotZ, float rotX, float angularMomentumZ, float angularMomentumX, TESObjectCELL* cell,
 			bool ignoreGravity = false);
 
 	};
@@ -406,7 +416,7 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 		float flt15C;
 	};
 
-
+	
 	// From JIP
 	TESObjectREFR* Projectile::GetImpactRef() const
 	{
@@ -444,10 +454,25 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 		return nullptr;
 	}
 
+	inline Projectile::ImpactData* Projectile::GetImpactDataAlt() const
+	{
+		const ListNode<ImpactData>* traverse = impactDataList.Head();
+		if (!traverse) return nullptr;
+		do
+		{
+			ImpactData* impactData = traverse->data;
+			if (impactData)
+			{
+				return impactData;
+			}
+		} while (traverse = traverse->next);
+		return nullptr;
+	}
+
 
 // From Tweaks
 Projectile* __cdecl Projectile::Spawn(BGSProjectile* projectile, Actor* source, CombatController* combatCtrl, TESObjectWEAP* sourceWeap,
-	NiPoint3 pos, float rotZ, float rotX, float angularMomentumZ, float angularMomentumX, TESObjectCELL* cell, bool ignoreGravity)
+	NiVector3 pos, float rotZ, float rotX, float angularMomentumZ, float angularMomentumX, TESObjectCELL* cell, bool ignoreGravity)
 {
 	return CdeclCall<Projectile*>(0x9BCA60, projectile, source, combatCtrl, sourceWeap, pos, rotZ, rotX, 
 		/* Projectile node for muzzle flash?*/ 0, 
@@ -627,7 +652,7 @@ struct _Sound
 	}
 
 	static void PlayFile(const char* filePath, UInt32 flags, TESObjectREFR* ref);
-	static void PlaySound3D(TESSound* soundform, TESObjectREFR* refr);
+	static void PlaySound3D(TESSound* soundForm, TESObjectREFR* refr, bool use_ref_ninode, TESObjectREFR* sound_target);
 	static void PlayTESSound(TESSound* soundForm, UInt32 flags, TESObjectREFR* refr);
 	static void PlayTESSound(TESSound* soundForm, UInt32 flags, TESObjectREFR* refr,const NiVector3& _pos);
 	static void PlayTESSoundAtPos(TESSound* soundForm, UInt32 flags, const NiVector3& _pos);
@@ -733,7 +758,7 @@ void _Sound::PlayFile(const char* filePath, UInt32 flags, TESObjectREFR* ref)
 	}
 }
 
-void _Sound::PlaySound3D(TESSound* soundForm, TESObjectREFR* refr) {
+void _Sound::PlaySound3D(TESSound* soundForm, TESObjectREFR* refr ,bool use_ref_ninode = false,TESObjectREFR* altref = nullptr) {
 	if (!soundForm) {
 		gLog.Message("soundForm invaild");
 		return;
@@ -745,11 +770,20 @@ void _Sound::PlaySound3D(TESSound* soundForm, TESObjectREFR* refr) {
 	}
 	
 	_Sound sound;
-	BSAudioManager::Get()->InitSoundForm(sound, soundForm->refID, 0x102);
+	//BSAudioManager::Get()->InitSoundForm(sound, soundForm->refID, 0x4102);//8004102
+	ThisStdCall(0xAD7480, BSWin32Audio::Get(), &sound, filePath, 0x4102, soundForm);
 	if (sound.soundKey != 0xFFFFFFFF)
 	{
 		sound.SetPos(*refr->GetPos());
-		sound.SetNiNode(nullptr);
+		NiNode* ref_node = nullptr;
+		if (use_ref_ninode) {
+			if (altref) {
+				if (altref->GetRefNiNode()) ref_node = altref->GetRefNiNode();
+			}
+			else if (refr->GetRefNiNode()) ref_node = refr->GetRefNiNode();
+		}
+		else if (refr->GetRefNiNode()) ref_node = refr->GetRefNiNode();
+		sound.SetNiNode(ref_node);
 		sound.Play();
 	}
 }
@@ -771,7 +805,7 @@ void _Sound::PlayTESSound(TESSound* soundForm, UInt32 flags, TESObjectREFR* refr
 	//BSAudioManager::Get()->InitSoundForm(sound, soundForm->refID, flags);
 	if (sound.soundKey != 0xFFFFFFFF)
 	{
-		sound.SetPos(refrNode->m_transformWorld.translate);
+		sound.SetPos(refrNode->m_worldTranslate);
 		sound.SetNiNode(refrNode);
 		sound.Play();
 	}

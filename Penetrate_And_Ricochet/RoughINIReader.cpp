@@ -174,6 +174,39 @@ INIReader::~INIReader() {}
 		return "";
 	}
 
+	int INIReader::GetInt(const std::string& s_raw_val, int def_val){
+		int ret = def_val;
+		try {
+			ret = std::stoi(s_raw_val);
+		}
+		catch (...) {
+			ret = def_val;
+		}
+		return ret;
+	}
+
+	UINT32 INIReader::GetUInt(const std::string& s_raw_val, UINT32 def_val){
+		UINT32 ret = def_val;
+		try {
+			ret = static_cast<UINT32>(std::stol(s_raw_val));
+		}
+		catch (...) {
+			ret = def_val;
+		}
+		return ret;
+	}
+
+	float INIReader::GetFloat(const std::string& s_raw_val, float def_val){
+		float ret = def_val;
+		try {
+			ret = std::stof(s_raw_val);
+		}
+		catch (...) {
+			ret = def_val;
+		}
+		return ret;
+	}
+
 };
 
 namespace roughinireader {

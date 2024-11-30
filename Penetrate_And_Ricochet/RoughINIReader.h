@@ -201,6 +201,9 @@ public:
 	// get rawtype val by given section and key
 	std::string GetRawTypeVal(const std::string& sec_name,const std::string& key_name);
 
+	int GetInt(const std::string& s_raw_val, int def_val);
+	UINT32 GetUInt(const std::string& s_raw_val, UINT32 def_val);
+	float GetFloat(const std::string& s_raw_val, float def_val);
 };
 
 
