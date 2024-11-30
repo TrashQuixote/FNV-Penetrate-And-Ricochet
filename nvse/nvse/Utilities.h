@@ -22,6 +22,8 @@ const std::string & GetFalloutDirectory(void);
 std::string GetNVSEConfigOption(const char * section, const char * key);
 bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 * dataOut);
 
+float __vectorcall Length_V4(__m128 inPS);
+
 // this has been tested to work for non-varargs functions
 // varargs functions end up with 'this' passed as the last parameter (ie. probably broken)
 // do NOT use with classes that have multiple inheritance
@@ -349,7 +351,30 @@ std::vector<std::string> SplitString(std::string s, std::string delimiter);
 
 #define INLINE_HOOK(retnType, callingConv, ...) static_cast<retnType(callingConv*)(__VA_ARGS__)>([](__VA_ARGS__) [[msvc::forceinline]] -> retnType
 
-UInt8* GetParentBasePtr(void* addressOfReturnAddress, bool lambda = false);
+__forceinline UInt8* GetParentBasePtr(void* addressOfReturnAddress, bool lambda = false) {
+	auto* basePtr = static_cast<UInt8*>(addressOfReturnAddress) - 4;
+#if _DEBUG
+	if (lambda) // in debug mode, lambdas are wrapped inside a closure wrapper function, so one more step needed
+		basePtr = *reinterpret_cast<UInt8**>(basePtr);
+#endif
+	return *reinterpret_cast<UInt8**>(basePtr);
+}
+
+template <typename T>
+__forceinline T GetVariableOfCallerStack(void* addressOfReturnAddress, int offset, bool lambda = false)
+{
+	auto* basePtr = GetParentBasePtr(addressOfReturnAddress, lambda);
+	return *reinterpret_cast<T*>(basePtr + offset);
+}
+
+template <typename T>
+__forceinline T GetVariablePtrOfCallerStack(void* addressOfReturnAddress, int offset, bool lambda = false)
+{
+	auto* basePtr = GetParentBasePtr(addressOfReturnAddress, lambda);
+	return reinterpret_cast<T>(basePtr + offset);
+}
+#define GET_CALLER_VAR(type, offset) GetVariableOfCallerStack<type>(_AddressOfReturnAddress(), offset, false)
+#define GET_CALLER_VAR_PTR(type, offset) GetVariablePtrOfCallerStack<type>(_AddressOfReturnAddress(), offset, false)
 
 //Example in https://en.cppreference.com/w/cpp/utility/variant/visit
 //Allows function overloading with c++ lambdas.

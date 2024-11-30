@@ -63,33 +63,46 @@ class NiPSysModifier;
 class NiRenderer;
 class NiGeometryData;
 
-// 0AC
+struct NiUpdateData
+{
+	float		timePassed;			// 00
+	bool		updateControllers;	// 04
+	bool		isMultiThreaded;	// 05
+	UInt8		byte06;				// 06
+	bool		updateGeomorphs;	// 07
+	bool		updateShadowScene;	// 08
+	UInt8		pad09[3];			// 09
+
+	NiUpdateData() {ZeroMemory(this, sizeof(NiUpdateData));}
+};
+
+// 09C
 class NiAVObject : public NiObjectNET
 {
 public:
 	NiAVObject();
 	~NiAVObject();
 
-	virtual void			UpdatePropertiesAndControllers(float arg);	// calls Update on properties and controllers
-	virtual void			Unk_24(void);
-	virtual void			Unk_25(void);
-	virtual NiObjectNET *	GetObject(const char * name);
-	virtual bool			IsNameType(const char * name);	//verified
-	virtual void			Unk_28(float arg, bool updateProperties);	// if(updateProperties) UpdatePropertiesAndControllers(arg); Unk_1D(); Unk_1E();
-	virtual void			Unk_29(float arg);			// update controllers, if kFlag_SelUpdatePropControllers update properties, if(kFlag_SelUpdateTransforms) { Unk_1D(); Unk_1E(); }
-	virtual void			Unk_2A(float arg);			// update controllers, if kFlag_SelUpdatePropControllers update properties, if(kFlag_SelUpdateTransforms) { Unk_1D(); Unk_1E(); }
-	virtual void			Unk_2B(void * arg);			// empty
-	virtual void			Unk_2C(void * arg);			// empty
-	virtual void			UpdateTransform(void);		// update world transform based on local transform and parent (also update collision)
-	virtual void			Unk_2E(void);				// empty
-	virtual void			Cull(NiCullingProcess * tgt);	// accumulate for drawing? NiNode iterates children
-	virtual void			Unk_30(void * arg);			// get NiMaterialProperty, pass to arg if found
-	virtual void			Unk_31(void * arg);
-	virtual void			Unk_32(void * arg);
-	virtual void			Unk_33(void * arg);
-	virtual void			Unk_34(void * arg);
-	virtual void			Unk_35(void * arg);
-	virtual void			Unk_36(void * arg);	// last is 036 verified
+	/*8C*/virtual void		UpdateControllers(const NiUpdateData& updParams);
+	/*90*/virtual void		ApplyTransform(NiMatrix33* arg1, NiVector3* arg2, bool arg3);
+	/*94*/virtual void		Unk_25(UInt32 arg);
+	/*98*/virtual void		Unk_26(UInt32 arg);
+	/*9C*/virtual NiAVObject* GetObjectByName(void* objName);	//NiFixedString
+	/*A0*/virtual void		SetSelectiveUpdateFlags(UInt8* bSelectiveUpdate, UInt32 bSelectiveUpdateTransform, UInt8* bRigid);
+	/*A4*/virtual void		UpdateDownwardPass(const NiUpdateData& updParams, UInt32 flags);
+	/*A8*/virtual void		UpdateSelectedDownwardPass(const NiUpdateData& updParams, UInt32 flags);
+	/*AC*/virtual void		UpdateRigidDownwardPass(const NiUpdateData& updParams, UInt32 flags);
+	/*B0*/virtual void		Unk_2C(/*const GeometryProperties& properties*/);
+	/*B4*/virtual void		Unk_2D(UInt32 arg);
+	/*B8*/virtual void		UpdateWorldData(const NiUpdateData& updParams);
+	/*BC*/virtual void		UpdateWorldBound();
+	/*C0*/virtual void		UpdateTransformAndBounds(const NiUpdateData& updParams);
+	/*C4*/virtual void		PreAttachUpdate(NiNode* newParent, const NiUpdateData& updParams);
+	/*C8*/virtual void		PreAttachUpdateProperties(NiNode* newParent);
+	/*CC*/virtual void		DetachParent(UInt32 arg);
+	/*D0*/virtual void		UpdateUpwardPassParent();
+	/*D4*/virtual void		OnVisible(NiCullingProcess* culling);
+	/*D8*/virtual void		PurgeRendererData(void* renderer);	//NiDX9Renderer
 
 	enum
 	{
@@ -100,25 +113,22 @@ public:
 		kFlag_SelUpdateRigid =				1 << 4,
 	};
 
-	struct RotAndTranslate 
-	{
-		NiMatrix33	rotate;		// Init'd to 1 0 0, 0 1 0, 0 0 1
-		NiVector3	translate;	// Init'd to 0x011F426C[3]
-	};	// 30
-
 	NiNode						* m_parent;				// 018 the implementation requires Func003A, so minimu NiNode.
-	UInt32						unk001C;				// 01C
-	UInt32						unk0020;				// 020 three members used as array, plus the following float
+	UInt32						m_collisionObject;		// 01C
+	UInt32						m_kWorldBound;			// 020 three members used as array, plus the following float
 	UInt32						unk0024;				// 024 -
 	UInt32						unk0028;				// 028 -
 	float						flt002C;				// 02C -
 	UInt32						unk0030;				// 030 Init'd to 10000000000000001110b
-	RotAndTranslate				m_transformLocal;		// 034 local ?
-	RotAndTranslate				m_transformWorld;		// 064 world ?
-
+	NiMatrix33					m_localRotate;			// 34
+	NiVector3					m_localTranslate;		// 58
+	float						m_localScale;			// 64
+	NiMatrix33					m_worldRotate;			// 68
+	NiVector3					m_worldTranslate;		// 8C
+	float						m_worldScale;			// 98
 	void Dump(UInt32 level, const char * indent);
 };
-STATIC_ASSERT(sizeof(NiAVObject) == 0x94);
+STATIC_ASSERT(sizeof(NiAVObject) == 0x9C);
 
 #if 0
 
@@ -271,33 +281,69 @@ public:
 	/*F8*/virtual void		ReplaceNthObject(UInt32 index, NiAVObject* replaceWith);	//	Calls ReplaceNthObject2 with arg3 as ptr to NULL
 	/*FC*/virtual void		UpdateUpwardPass();
 
-	UInt32						unk0094;	// 094
-	UInt32						unk0098;	// 098
 	NiTArray <NiAVObject *>		m_children;	// 09C
 
 	NiAVObject* GetBlock(const char* blockName);
 
 };	// 0AC
+STATIC_ASSERT(sizeof(NiNode) == 0xAC);
 
-
-
-#if 0
-
-// F0
-class SceneGraph : public NiNode
+class NiCamera : public NiAVObject
 {
+public:
+	float			worldToCam[4][4];	// 09C
+	NiFrustum		frustum;			// 0DC
+	float			minNearPlaneDist;	// 0F8
+	float			maxFarNearRatio;	// 0FC
+	NiViewport		viewPort;			// 100
+	float			LODAdjust;			// 110
+
+	__forceinline static NiCamera* Create() { return CdeclCall<NiCamera*>(0xA71430); }
+
+	//bool __fastcall WorldToScreen(const NiVector3& worldPos, NiPoint2& scrPos);
+};
+static_assert(sizeof(NiCamera) == 0x114);
+
+class BSSceneGraph : public NiNode {
+public:
+	BSSceneGraph();
+	~BSSceneGraph();
+
+	/*100*/virtual double	CalculateNoLODFarDist();
+	/*104*/virtual void		SetViewDistanceBasedOnFrameRate(float afTime);
+};
+STATIC_ASSERT(sizeof(BSSceneGraph) == 0xAC);
+
+//C0
+class SceneGraph : public BSSceneGraph {
 public:
 	SceneGraph();
 	~SceneGraph();
 
-	NiCamera			* camera;			// 0DC
-	UInt32				unk0E0;				// 0E0
-	NiCullingProcess	* cullingProcess;	// 0E4
-	UInt32				unk0E8;				// 0E8
-	float				cameraFOV;			// 0EC
+	NiCamera*			camera;			// AC
+	void*				pVisArray;			// B0
+	NiCullingProcess*	cullingProc;		// B4
+	UInt32				isMinFarPlaneDist;	// B8 The farplane is set to 20480.0 when the flag is true. Probably used for interiors.
+	float				cameraFOV;			// BC
 };
+STATIC_ASSERT(sizeof(SceneGraph) == 0xC0);
+#if 0
 
-STATIC_ASSERT(sizeof(SceneGraph) == 0x0F0);
+// F0
+//class SceneGraph : public NiNode
+//{
+//public:
+//	SceneGraph();
+//	~SceneGraph();
+//
+//	NiCamera			* camera;			// 0DC
+//	UInt32				unk0E0;				// 0E0
+//	NiCullingProcess	* cullingProcess;	// 0E4
+//	UInt32				unk0E8;				// 0E8
+//	float				cameraFOV;			// 0EC
+//};
+//
+//STATIC_ASSERT(sizeof(SceneGraph) == 0x0F0);
 
 // E0
 class BSTempNodeManager : public NiNode

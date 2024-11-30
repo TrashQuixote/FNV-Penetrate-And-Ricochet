@@ -186,6 +186,30 @@ bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 *
 	return (sscanf(data.c_str(), "%lu", dataOut) == 1);
 }
 
+__declspec(naked) float __vectorcall Length_V4(__m128 inPS)
+{
+	__asm
+	{
+		xorps	xmm1, xmm1
+		mulps	xmm0, xmm0
+		haddps	xmm0, xmm1
+		haddps	xmm0, xmm1
+		comiss	xmm0, xmm1
+		jz		done
+		movq	xmm1, xmm0
+		rsqrtss	xmm2, xmm0
+		mulss	xmm1, xmm2
+		mulss	xmm1, xmm2
+		movss	xmm3, SS_3
+		subss	xmm3, xmm1
+		mulss	xmm3, xmm2
+		mulss	xmm3, PS_V3_Half
+		mulss	xmm0, xmm3
+		done :
+		retn
+	}
+}
+
 namespace MersenneTwister
 {
 
@@ -1160,14 +1184,4 @@ std::vector<std::string> SplitString(std::string s, std::string delimiter)
 
 	res.push_back(s.substr(pos_start));
 	return res;
-}
-
-UInt8* GetParentBasePtr(void* addressOfReturnAddress, bool lambda)
-{
-	auto* basePtr = static_cast<UInt8*>(addressOfReturnAddress) - 4;
-#if _DEBUG
-	if (lambda) // in debug mode, lambdas are wrapped inside a closure wrapper function, so one more step needed
-		basePtr = *reinterpret_cast<UInt8**>(basePtr);
-#endif
-	return *reinterpret_cast<UInt8**>(basePtr);
 }

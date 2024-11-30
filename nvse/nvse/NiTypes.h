@@ -12,6 +12,7 @@ struct NiRTTI
 	NiRTTI		* parent;
 };
 
+
 // C
 struct NiVector3
 {
@@ -31,6 +32,12 @@ struct NiVector3
 		_mm_storeu_si64(this, _mm_castps_si128(rhs));
 		_mm_store_ss(&z, _mm_unpackhi_ps(rhs, rhs));
 		return *this;
+	}
+
+	inline float __vectorcall DotProduct(const NiVector3& rhs) const
+	{
+		__m128 k = _mm_setzero_ps();
+		return _mm_cvtss_f32(_mm_hadd_ps(_mm_hadd_ps(PS3() * rhs.PS(), k), k));
 	}
 
 	__forceinline __m128 operator+(__m128 packedPS) const { return PS() + packedPS; }
@@ -58,9 +65,12 @@ struct NiVector3
 		y *= rhs.y;
 		z *= rhs.z;
 	}
-	
+	inline float __vectorcall Length() const { return Length_V4(PS3()); }
 	__m128 __vectorcall CrossProduct(const NiVector3& vB) const;
+	NiVector3& Normalize();
 };
+
+float __vectorcall Point2Distance(const NiVector3& pt1, const NiVector3& pt2);
 
 __forceinline NiVector3 GetVector(const NiVector3& begin, const NiVector3& end) {
 	return NiVector3{ (end.x - begin.x),(end.y - begin.y),(end.z - begin.z) };
@@ -174,19 +184,6 @@ struct NiSphere
 	float	x, y, z, radius;
 };
 
-// 1C
-struct NiFrustum
-{
-	float	l;			// 00
-	float	r;			// 04
-	float	t;			// 08
-	float	b;			// 0C
-	float	n;			// 10
-	float	f;			// 14
-	UInt8	o;			// 18
-	UInt8	pad19[3];	// 19
-};
-
 // 10
 struct NiViewport
 {
@@ -194,6 +191,39 @@ struct NiViewport
 	float	r;
 	float	t;
 	float	b;
+
+	//NiViewport() {}
+	__forceinline NiViewport(float _l, float _r, float _t, float _b) : l(_l), r(_r), t(_t), b(_b) {}
+	__forceinline explicit NiViewport(const __m128 rhs) { SetPS(rhs); }
+
+	__forceinline void operator=(NiViewport&& rhs) noexcept
+	{
+		l = rhs.l;
+		r = rhs.r;
+		t = rhs.t;
+		b = rhs.b;
+	}
+
+	__forceinline NiViewport& SetPS(const __m128 rhs)
+	{
+		_mm_storeu_ps(&l, rhs);
+		return *this;
+	}
+
+	__forceinline __m128 PS() const { return _mm_loadu_ps(&l); }
+
+	//void __vectorcall SetFOV(float fov);
+};
+
+
+// 1C
+struct NiFrustum
+{
+	NiViewport	viewPort;	// 00
+	float		dNear;		// 10
+	float		dFar;		// 14
+	bool		ortho;		// 18
+	UInt8		pad19[3];	// 19
 };
 
 // C
@@ -326,6 +356,14 @@ public:
 	NiTPointerMap();
 	virtual ~NiTPointerMap();
 
+	
+	virtual UInt32	CalculateBucket(UInt32 key);
+	virtual bool	CompareKey(UInt32 lhs, UInt32 rhs);
+	virtual void	Fn_03(UInt32 arg0, UInt32 arg1, UInt32 arg2);	// assign to entry
+	virtual void	Fn_04(UInt32 arg);
+	virtual void	Fn_05(void);	// locked operations
+	virtual void	Fn_06(void);	// locked operations
+
 	struct Entry
 	{
 		Entry	* next;
@@ -356,12 +394,6 @@ public:
 		UInt32		m_bucket;
 	};
 
-	virtual UInt32	CalculateBucket(UInt32 key);
-	virtual bool	CompareKey(UInt32 lhs, UInt32 rhs);
-	virtual void	Fn_03(UInt32 arg0, UInt32 arg1, UInt32 arg2);	// assign to entry
-	virtual void	Fn_04(UInt32 arg);
-	virtual void	Fn_05(void);	// locked operations
-	virtual void	Fn_06(void);	// locked operations
 
 	T_Data *	Lookup(UInt32 key);
 	bool		Insert(Entry* nuEntry);

@@ -1,5 +1,6 @@
 #include "NiTypes.h"
 
+
 // Copied from JIP LN NVSE
 __declspec(naked) float __vectorcall Point3Distance(const NiVector3& pt1, const NiVector3& pt2)
 {
@@ -72,6 +73,37 @@ __declspec(naked) __m128 __vectorcall NiVector3::CrossProduct(const NiVector3& v
 		mulps	xmm3, xmm4
 		subps	xmm0, xmm3
 		jmp		Normalize_V4
+	}
+}
+
+__declspec(naked) NiVector3& NiVector3::Normalize()
+{
+	__asm
+	{
+		mov		eax, ecx
+		movups	xmm1, [eax]
+		andps	xmm1, PS_XYZ0Mask
+		movaps	xmm2, xmm1
+		mulps	xmm2, xmm2
+		xorps	xmm0, xmm0
+		haddps	xmm2, xmm0
+		haddps	xmm2, xmm0
+		comiss	xmm2, PS_Epsilon
+	jb	zeroLen
+		rsqrtss	xmm3, xmm2
+		movss	xmm0, SS_3
+		mulss	xmm2, xmm3
+		mulss	xmm2, xmm3
+		subss	xmm0, xmm2
+		mulss	xmm0, xmm3
+		mulss	xmm0, PS_V3_Half
+		shufps	xmm0, xmm0, 0xC0
+		mulps	xmm0, xmm1
+	zeroLen :
+		pshufd	xmm2, xmm0, 2
+		movlps[eax], xmm0
+		movss[eax + 8], xmm2
+		retn
 	}
 }
 
