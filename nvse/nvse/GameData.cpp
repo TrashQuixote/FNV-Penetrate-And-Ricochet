@@ -93,6 +93,8 @@ ModInfo::~ModInfo() {
 	//
 };
 
+TES* g_TES = TES::GetSingleton();
+GridCellArray* g_gridCellArray = g_TES->gridCellArray;
 __declspec(naked) TESObjectCELL* __vectorcall GridCellArray::GetCellAtCoord(__m128i cellXY) const
 {
 	__asm

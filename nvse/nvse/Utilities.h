@@ -6,6 +6,7 @@
 #include <memory>
 
 class Script;
+#define ADDR_ReturnThis			0x6815C0
 #define EMIT(bt) __asm _emit bt
 #define GET_N_BYTE(a, n) ((a >> (n * 8)) & 0xFF)
 #define DUP_4(a) a a a a
@@ -21,7 +22,8 @@ const char * GetObjectClassName(void * obj);
 const std::string & GetFalloutDirectory(void);
 std::string GetNVSEConfigOption(const char * section, const char * key);
 bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 * dataOut);
-
+bool __vectorcall Equal_V4(__m128 y1, __m128 v2);
+bool __vectorcall Equal_V3(__m128 v1, __m128 v2);
 float __vectorcall Length_V4(__m128 inPS);
 
 // this has been tested to work for non-varargs functions
@@ -413,3 +415,4 @@ __forceinline __m128 __vectorcall operator^(__m128 a, __m128 b)
 {
 	return _mm_xor_ps(a, b);
 }
+

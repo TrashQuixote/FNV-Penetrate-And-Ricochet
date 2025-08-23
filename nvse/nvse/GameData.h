@@ -25,6 +25,8 @@ class TESRegionList;
 class TESRegionManager;
 class BSFile;
 
+
+
 class GridArray
 {
 public:
@@ -82,7 +84,7 @@ public:
 	
 	TESObjectCELL* __vectorcall GetCellAtCoord(__m128i cellXY) const;
 };
-
+extern GridCellArray* g_gridCellArray;
 
 class ImageSpaceModifierInstance : public NiObject
 {
@@ -167,7 +169,7 @@ public:
 
 	__forceinline static TES* GetSingleton() { return *(TES**)0x11DEA10; }
 };
-
+extern TES* g_TES;
 
 struct ChunkAndFormType {
 	UInt32		chunkType;	// ie 
@@ -439,6 +441,10 @@ public:
 	UInt32							unk638;					// 638
 
 	static DataHandler* Get();
+	static __forceinline DataHandler* Singleton() {
+		DataHandler** g_dataHandler = (DataHandler**)0x011C3F2C;
+		return (*g_dataHandler);
+	}
 	const ModInfo ** GetActiveModList();		// returns array of modEntry* corresponding to loaded mods sorted by mod index
 	const ModInfo* LookupModByName(const char* modName);
 	UInt8 GetModIndex(const char* modName);

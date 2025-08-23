@@ -71,6 +71,14 @@ public:
 	//	RefNiRefObject SetNiRefObject(NiRefObject* niRefObject);
 };
 
+class Model  // NiObject
+{
+public:
+	const char* path;		// 00
+	UInt32		counter;	// 04
+	NiNode* niNode;	// 08
+
+};
 // 18
 class BSTask
 {
@@ -89,7 +97,7 @@ public:
 	UInt32	unk010;		// Paired : 10 and 14 as a 64 bit integer, it could be very large flag bits or an integer
 	UInt32	unk014;
 
-	static UInt32*	GetCounterSingleton();
+	static UInt32* GetCounterSingleton() { return (UInt32*)0x11C3B38; }
 };
 
 // 18
@@ -124,9 +132,9 @@ public:
 	//Unk_02:	virtual void Call_Unk_0A(void);
 	//Unk_03:	implemented
 	//Unk_07:	recursivly calls Unk_07(arg_0) on all non null children before calling its parent.
-	virtual void Unk_08(void);				// doesNothing
-	virtual void Unk_09(UInt32 arg0);
-	virtual void Unk_0A(void);				
+	virtual void DoRequestHandles();
+	virtual void DoOnChildrenFinished(UInt32 arg0);
+	virtual void DoOnTaskFinished();
 
 	// size?
 	struct FileEntry {
@@ -149,19 +157,19 @@ public:
 	QueuedReference();
 	~QueuedReference();
 
-	virtual void Unk_0B(void);			// Initialize validBip01Names (and cretae the 3D model ?)
-	virtual void Unk_0C(void);
-	virtual void Unk_0D(NiNode* arg0);
-	virtual bool Unk_0E(void);
-	virtual void Unk_0F(void);
-	virtual void Unk_10(void);			// doesNothing
+	virtual void QueueModels();			// Initialize bipedAnims (and cretae the 3D model?)
+	virtual void UseDistant3D();
+	virtual void AttachDistant3D(NiNode* arg0);
+	virtual bool BackgroundClone();
+	virtual void DoAttach();
+	virtual void FinishAttach();
 
 	TESObjectREFR	* refr;				// 028 
-	RefNiRefObject	* unk02C;			// OBSE QueuedChildren	* queuedChildren;	// 02C
-	NiRefObject		* unk030;			// 030 
-	NiRefObject		* unk034;			// 034 
-	RefNiRefObject	* unk038;			// 038 
-	UInt32			unk03C;				// 03C uninitialized
+	BSTask* task2C;			// OBSE QueuedChildren	* queuedChildren;	// 02C
+	Model* model;			// 030 
+	NiNode* resultObj;			// 034 
+	BSTask* task38;			// 038 
+	UInt32			unk3C;				// 03C uninitialized
 };
 
 // 40
@@ -215,12 +223,6 @@ public:
 	BSAData	* bsaData;	// 02C
 };
 
-class Model // NiObject
-{
-	const char	* path;		// 004
-	UInt32		counter;	// 008
-	NiNode		* ninode;	// 00C
-};
 
 // 44
 class QueuedModel : public QueuedFileEntry
@@ -259,6 +261,11 @@ class KFModel
 	TESAnimGroup		* animGroup;			// 008
 	UInt32				unk0C;					// 00C
 	UInt32				unk10;					// 010
+
+	__forceinline KFModel* Init(const char* kfPath, void* stream)
+	{
+		return ThisStdCall<KFModel*>(0x43B640, this, kfPath, stream);
+	}
 };
 
 // 30
@@ -358,8 +365,8 @@ class InterfacedClass {
 };
 
 // 40
-template<typename _K, class _C>
-class LockFreeMap: InterfacedClass
+template<typename T_Key, class T_Data>
+class LockFreeMap: public InterfacedClass
 {
 	// 0C
 	struct Data004
@@ -399,40 +406,96 @@ class LockFreeMap: InterfacedClass
 		UInt32	count;		// Init'd to 0
 	};	// most likely an array or a map
 
-	virtual bool Get(_K key, _C *destination) = 0;
-	virtual void Unk_03(void) = 0;
-	virtual void Unk_04(void) = 0;
-	virtual void Unk_05(void) = 0;
-	virtual void Unk_06(void) = 0;
-	virtual void Unk_07(void) = 0;
-	virtual void Unk_08(void) = 0;
-	virtual UInt32 Hash(_K key) = 0;
-	virtual void Unk_0A(void) = 0;
-	virtual void Unk_0B(void) = 0;
-	virtual void Unk_0C(void) = 0;
-	virtual void Unk_0D(void) = 0;
-	virtual void Unk_0E(void) = 0;
-	virtual void Unk_0F(void) = 0;
-	virtual void Unk_10(void) = 0;
-	virtual void Unk_11(void) = 0;
+	struct Entry
+	{
+		T_Key		key;
+		T_Data		data;
+		Entry* next;
+	};
+
+	struct Bucket
+	{
+		Entry* entries;
+	};
 
 	Data004	**dat004;		// 04 array of arg0 12 bytes elements (uninitialized)
-	UInt32	bucketCount;	// 08 Init'd to arg1, count of DWord to allocate in array at 000C
-	UInt32	**buckets;		// 0C array of arg1 DWord elements
+	UInt32	numBuckets;	// 08 Init'd to arg1, count of DWord to allocate in array at 000C
+	Bucket *buckets;		// 0C array of arg1 DWord elements
 	UInt32	unk010;			// 10 Init'd to arg2
 	Data014	*dat014;		// 14 Init'd to a 16 bytes structure
-	UInt32	unk018;			// 18
+	UInt32	numItems;			// 18
 	UInt32	unk01C;			// 1C
-	UInt32	unk020[2];		// 20 Pair of DWord (tList ?)
-	// ?
+	LightCS	semaphore;		// 20 
+	UInt32	unk028[6];		// 28 
+	
+	Bucket* GetBuckets() const { return buckets; }
+	Bucket* End() const { return buckets + numBuckets; }
+
+public:
+	/*08*/virtual bool		Lookup(T_Key key, T_Data* result);
+	/*0C*/virtual bool		Unk_03(UInt32 arg1, UInt32 arg2, UInt32 arg3, UInt8 arg4);
+	/*10*/virtual bool		Insert(T_Key key, T_Data* dataPtr, UInt8 arg3);
+	/*14*/virtual bool		EraseKey(T_Key key);
+	/*18*/virtual bool		Unk_06(UInt32 arg1, UInt32 arg2);
+	/*1C*/virtual bool		Unk_07(UInt32 arg);
+	/*20*/virtual bool		Unk_08(UInt32 arg1, UInt32 arg2);
+	/*24*/virtual UInt32	CalcBucketIndex(T_Key key);
+	/*28*/virtual void		FreeKey(T_Key key);
+	/*2C*/virtual T_Key		GenerateKey(T_Key src);
+	/*30*/virtual void		CopyKeyTo(T_Key src, T_Key* destPtr);
+	/*34*/virtual bool		LKeyGreaterOrEqual(T_Key lkey, T_Key rkey);
+	/*38*/virtual bool		KeysEqual(T_Key lkey, T_Key rkey);
+	/*3C*/virtual UInt32	IncNumItems();
+	/*40*/virtual UInt32	DecNumItems();
+	/*44*/virtual UInt32	GetNumItems();
+
+	UInt32 Size() const { return numItems; }
+	bool Empty() const { return !numItems; }
+	UInt32 BucketCount() const { return numBuckets; }
+
+	class Iterator
+	{
+		LockFreeMap* table;
+		Bucket* bucket;
+		Entry* entry;
+
+		void FindNonEmpty()
+		{
+			for (Bucket* end = table->End(); bucket != end; bucket++)
+				if (entry = bucket->entries) return;
+		}
+
+	public:
+		Iterator(LockFreeMap& _table) : table(&_table), bucket(table->buckets), entry(nullptr) { FindNonEmpty(); }
+
+		explicit operator bool() const { return entry != nullptr; }
+		void operator++()
+		{
+			entry = entry->next;
+			if (!entry)
+			{
+				bucket++;
+				FindNonEmpty();
+			}
+		}
+		T_Data Get() const { return entry->data; }
+		T_Key Key() const { return entry->key; }
+	};
+
+	Iterator Begin() { return Iterator(*this); }
 };
+static_assert(sizeof(LockFreeMap<int, int>) == 0x40);
 
 template<class _C>
 class LockFreeStringMap: LockFreeMap<char const *, _C> {};
 
 template<class _C>
 class LockFreeCaseInsensitiveStringMap: LockFreeStringMap<_C> {};
-
+class QueuedReplacementKFList;
+class QueuedHelmet;
+class BSFileEntry;
+class LoadedFile;
+class Animation;
 // 1C
 class ModelLoader
 {
@@ -442,15 +505,28 @@ public:
 
 	// #TODO: generalize key for LockFreeMap, document LockFreeStringMap
 
-	LockFreeCaseInsensitiveStringMap<Model *>			* modelMap;				// 00
-	LockFreeCaseInsensitiveStringMap<KFModel *>			* kfMap;				// 04
-	LockFreeMap< TESObjectREFR*, NiPointer<QueuedReference *> >		* refMap;	// 08 key is TESObjectREFR*
+	LockFreeMap<const char*, Model *>				* modelMap;				// 00
+	LockFreeMap<const char*, KFModel*>				* kfMap;				// 04
+	LockFreeMap<TESObjectREFR*,QueuedReference*>	* refMap;				// 08 key is TESObjectREFR*
+	LockFreeMap<TESObjectREFR*, QueuedReference*>	* refMap2;
+	LockFreeMap<void*, QueuedAnimIdle*>				* idleMap;				// 10 key is AnimIdle*
+	LockFreeMap<Animation*, QueuedReplacementKFList*>* animMap;				// 14 
+	LockFreeMap<TESObjectREFR*, QueuedHelmet*>		* helmetMap;			// 18
+	void*											attachQueue;			// 1C LockFreeQueue<AttachDistant3DTask*>*
+	LockFreeMap<BSFileEntry*, QueuedTexture*>		* textureMap;			// 20
+	LockFreeMap<const char*, LoadedFile*>			* fileMap;				// 24
+	BackgroundCloneThread							* bgCloneThread;		// 28
+	UInt8											byte2C;				// 2C
+	UInt8											pad2D[3];			// 2D
+	
 	//LockFreeMap< NiPointer<QueuedAnimIdle *> >		* idleMap;					// 0C key is AnimIdle* (strange same constructor as for 08)
 	//LockFreeMap< NiPointer<QueuedHelmet *> >			* helmetMap;				// 10 key is TESObjectREFR*
 	//LockFreeQueue< NiPointer<AttachDistant3DTask *> >	* distant3DMap;				// 14
 	//BackgroundCloneThread								* bgCloneThread;			// 18
 
-	static ModelLoader* GetSingleton();
+
+	__forceinline static ModelLoader* GetSingleton() { return *(ModelLoader**)0x11C3B3C; }
 
 	void QueueReference(TESObjectREFR* refr, UInt32 arg1, bool ifInMainThread);
 };
+

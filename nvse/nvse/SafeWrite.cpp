@@ -36,6 +36,14 @@ void SafeWriteBuf(UInt32 addr, void * data, UInt32 len)
 	VirtualProtect((void *)addr, len, oldProtect, &oldProtect);
 }
 
+void SafeWriteBuf(UInt32 addr, const char* data, UInt32 len)
+{
+	UInt32 oldProtect;
+	VirtualProtect((void*)addr, len, PAGE_EXECUTE_READWRITE, &oldProtect);
+	memcpy((void*)addr, data, len);
+	VirtualProtect((void*)addr, len, oldProtect, &oldProtect);
+}
+
 void WriteRelJump(UInt32 jumpSrc, UInt32 jumpTgt)
 {
 	// jmp rel32

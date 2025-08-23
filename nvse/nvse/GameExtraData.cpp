@@ -289,6 +289,27 @@ bool ExtraContainerChanges::EntryData::Remove(ExtraDataList* toRemove, bool bFre
 	return false;
 }
 
+ExtraDataList* ExtraContainerChanges::EntryData::GetEquippedExtra() const
+{
+	__asm
+	{
+		mov		eax, [ecx]
+		ALIGN 16
+	iterHead:
+		test	eax, eax
+			jz		done
+			mov		ecx, [eax]
+			mov		eax, [eax + 4]
+			test	ecx, ecx
+			jz		iterHead
+			test	byte ptr[ecx + 0xA], 0x40
+			jz		iterHead
+			mov		eax, ecx
+	done :
+		retn
+	}
+}
+
 void ExtraContainerChangesEntryDataFree(ExtraContainerChanges::EntryData* xData, bool bFreeList) {
 	if (xData) {
 		if (xData->extendData) {
@@ -368,6 +389,21 @@ ExtraContainerChanges::Data* ExtraContainerChanges::Data::Create(TESObjectREFR* 
 		data->unk3 = 0.0;
 	}
 	return data;
+}
+
+__declspec(naked) double ExtraContainerChanges::Data::GetInventoryWeight() const
+{
+	__asm
+	{
+		mov		dword ptr[ecx + 8], 0xBF800000
+		mov		eax, g_thePlayer
+		movzx	eax, byte ptr[eax + 0x7BC]
+		push	eax
+		mov		byte ptr ds : 0x11E0898, 1
+		CALL_EAX(0x4D0900)
+		mov		byte ptr ds : 0x11E0898, 0
+		retn
+	}
 }
 
 ExtraContainerChanges* ExtraContainerChanges::Create(TESObjectREFR* thisObj, UInt32 refID, UInt32 count, ExtraContainerChanges::ExtendDataList* pExtendDataList)

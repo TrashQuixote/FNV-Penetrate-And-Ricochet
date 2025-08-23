@@ -186,6 +186,35 @@ bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 *
 	return (sscanf(data.c_str(), "%lu", dataOut) == 1);
 }
 
+bool __vectorcall Equal_V4(__m128 y1, __m128 v2)
+{
+	__asm
+	{
+		subps	xmm0, xmm1
+		andps	xmm0, PS_AbsMask
+		cmpltps	xmm0, PS_Epsilon
+		movmskps	eax, xmm0
+		cmp		al, 0xF
+		setz	al
+		retn
+	}
+}
+
+bool __vectorcall Equal_V3(__m128 v1, __m128 v2)
+{
+	__asm
+	{
+		subps	xmm0, xmm1
+		pshufd	xmm1, PS_AbsMask0, 0x40
+		andps	xmm0, xmm1
+		cmpltps	xmm0, PS_Epsilon
+		movmskps	eax, xmm0
+		cmp		al, 0xF
+		setz	al
+		retn
+	}
+}
+
 __declspec(naked) float __vectorcall Length_V4(__m128 inPS)
 {
 	__asm

@@ -129,6 +129,11 @@ UInt32 __fastcall StrHashCS(const char* inKey);
 
 UInt32 __fastcall StrHashCI(const char* inKey);
 
+__m128 __vectorcall GetSinCos_V3(__m128 angles);
+float __vectorcall ASin(float x);
+float __vectorcall ACos(float x);
+float __vectorcall ATan2(float y, float x);
+
 class SpinLock
 {
 	UInt32	owningThread;

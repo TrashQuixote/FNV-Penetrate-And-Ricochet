@@ -431,7 +431,6 @@
  *		NiD3DSCM_Pixel
  *
  ****/
-
 class NiAVObject;
 class BSFadeNode;
 class NiExtraData;
@@ -456,8 +455,24 @@ class ActiveEffect;
 	const UInt32 kNiObjectNET_GetExtraData = 0x006FF9C0;
 #endif
 
-struct NiMemObject
-{
+class NiFixedString {
+public:
+	const char* handle;
+
+	NiFixedString(const char* pcString) {
+		if (pcString)
+			handle = CdeclCall<const char*>(0xA5B690, pcString);
+		else
+			handle = nullptr;
+	};
+	~NiFixedString() {
+		CdeclCall(0x4381D0, this);
+	};
+};
+
+class NiMemObject {
+	NiMemObject();
+	~NiMemObject();
 };
 
 // 008
@@ -472,7 +487,17 @@ public:
 
 //	void		** _vtbl;		// 000
 	UInt32		m_uiRefCount;	// 004 - name known
+
+	inline void IncRefCount() {
+		InterlockedIncrement(&m_uiRefCount);
+	}
+
+	inline void DecRefCount() {
+		if (!InterlockedDecrement(&m_uiRefCount))
+			Free();
+	}
 };
+STATIC_ASSERT(sizeof(NiRefObject) == 0x08);
 
 // 008
 class NiObject : public NiRefObject
@@ -481,8 +506,8 @@ public:
 	
 
 	virtual NiRTTI*		GetType();		// 02
-	virtual NiNode*		GetAsNiNode();	// 03 
-	virtual UInt32		Unk_04(void);		// 04
+	virtual NiNode*		GetNiNode();	// 03 
+	virtual BSFadeNode* GetFadeNode();		// 04
 	virtual UInt32		Unk_05(void);		// 05
 	virtual UInt32		Unk_06(void);		// 06
 	virtual UInt32		Unk_07(void);		// 07
@@ -514,6 +539,7 @@ public:
 	virtual void		Unk_21(void);
 	virtual void		Unk_22(void);
 };
+STATIC_ASSERT(sizeof(NiObject) == 0x08);
 
 class RefNiObject
 {
@@ -532,18 +558,40 @@ public:
 	DEFINE_MEMBER_FN(GetExtraData, NiExtraData*, kNiObjectNET_GetExtraData, const char* name);
 #endif
 
-	const char			* m_pcName;						// 008 - name known
+	NiFixedString		m_blockName;						// 008 - name known
 	NiTimeController	* m_controller;					// 00C - size ok
 
 	// doesn't appear to be part of a class?
 	NiExtraData			** m_extraDataList;				// 010 - size ok
 	UInt16				m_extraDataListLen;				// 014 - size ok
 	UInt16				m_extraDataListCapacity;		// 016 - size ok
+	NiExtraData* __fastcall GetExtraData(UInt32 vtbl) const;
 	// 018
+	bool AddExtraData(NiExtraData* extraData) {
+		return ThisStdCall<bool>(0xA5BCA0, this, extraData);
+	}
 
-	void SetName(const char* newName);
+	void SetName(NiFixedString& arString) {
+		ThisStdCall(0xA5B950, this, &arString);
+	}
 };
 STATIC_ASSERT(sizeof(NiObjectNET) == 0x18);
+
+class NiExtraData : public NiObject
+{
+public:
+	/*8C*/virtual void		Unk_23(void);
+	/*90*/virtual void		Unk_24(void);
+
+	NiFixedString	name;		// 08
+};
+
+class BSBound : public NiExtraData
+{
+public:
+	NiVector3		centre;			// 0C
+	NiVector3		dimensions;		// 18
+};
 
 // 030
 class NiTexture : public NiObjectNET
@@ -1397,18 +1445,45 @@ public:
 /**** BSTempEffects ****/
 
 // 18
+
 class BSTempEffect : public NiObject
 {
 public:
-	BSTempEffect();
-	~BSTempEffect();
+	enum Type : UInt32 {
+		GEO_DECAL = 1,
+		PARTICLE = 2,
+		SIMPLE_DECAL = 3,
+		MAGIC_HIT = 4,
+		MAGIC_MODEL_HIT = 5,
+		MAGIC_SHADER_HIT = 6,
+	};
 
-	float			duration;		// 08
-	TESObjectCELL*	cell;			// 0C
-	float			unk10;			// 10
-	UInt8			unk14;			// 14
-	UInt8			pad15[3];
+
+	BSTempEffect();
+	virtual ~BSTempEffect();
+
+	virtual void			Initialize();			// 35
+	virtual BSTempEffect* GetSelf();				// 36 | ???? Used by particles
+	virtual bool			Update(float afTime);	// 37 | Returns true if effect is finished
+	virtual NiNode* Get3D();				// 38 | Returns geometry
+	virtual Type			EffectGetType();				// 39 |	Returns 3 for base
+	virtual bool			IsLoaded();				// 40 | ???? Used by MagicModelHitEffect and particles
+	virtual UInt32			GetSaveSize();			// 41
+	virtual void			SaveGame();				// 42
+	virtual void			SaveGame2();			// 43 | Saves cell refid, skips bInitialized
+	virtual void 			LoadGame();				// 44
+	virtual void			LoadGame2();			// 45 | Loads cell refid?
+	virtual void			SetTarget();			// 46 | Used by MagicHitEffect
+	virtual void			Unk_47();				// 47 | ????
+	virtual bool			IsFirstPerson();		// 48 | Used by shell casings
+
+	float			lifetime;	// 08
+	TESObjectCELL* cell;		// 0C
+	float			age;		// 10
+	bool			initialized;// 14
+	UInt8			pad15[3];	// 15
 };
+static_assert(sizeof(BSTempEffect) == 0x18);
 
 // 28
 class MagicHitEffect : public BSTempEffect

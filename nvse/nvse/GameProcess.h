@@ -13,6 +13,148 @@ struct CombatActors;
 class TESAmmo;
 class TESObjectWEAP;
 
+
+struct Decal
+{
+	enum Type
+	{
+		kDecalType_Simple = 1,
+		kDecalType_Skinned = 2,
+		kDecalType_Other = 4
+	};
+
+	NiVector3		worldPos;			// 00
+	NiVector3		rotation;			// 0C
+	NiVector3		kSurfaceNormal;		// 18
+	Actor* actor;				// 24
+	BSFadeNode* node;				// 28
+	UInt32			unk2C;				// 2C
+	BGSTextureSet* textureSet;		// 30
+	SInt32			index;				// 34
+	float			width;				// 38
+	float			height;				// 3C
+	float			depth;				// 40
+	float			rng44;				// 44
+	TESObjectCELL* parentCell;		// 48
+	float			parallaxScale;		// 4C
+	NiNode* skinnedDecal;		// 50
+	float			specular;			// 54
+	float			epsilon;			// 58
+	float			placementRadius;	// 5C
+	NiColor			vertexColor;		// 60
+	UInt32			hitLocationFlags;	// 6C
+	UInt8			whichUVQuadrant;	// 70
+	UInt8			bPermanent;				// 71
+	UInt8			byte72;				// 72
+	UInt8			isParallax;			// 73
+	UInt8			isAlphaTest;		// 74
+	UInt8			alphaBlend;			// 75
+	UInt8			parallaxPasses;		// 76
+	UInt8			modelSpace;			// 77
+	UInt8			forceFade;			// 78
+	UInt8			twoSided;			// 79
+	UInt8			pad7A[2];			// 7A
+
+	Decal() {
+		ThisStdCall(0x4A37B0,this);
+	}
+};
+static_assert(sizeof(Decal) == 0x7C);
+
+class BSTempEffectSimpleDecal;
+class BSTempEffect;
+class BSTempEffectParticle;
+
+
+class BSSoundHandle {
+public:
+	UInt32	uiSoundID;
+	bool	bAssumeSuccess;
+	UInt32	uiState;
+
+	BSSoundHandle() : uiSoundID(-1), bAssumeSuccess(false), uiState(0) {}
+	~BSSoundHandle() {}
+
+	bool IsValid();
+	bool IsInvalid() const { return uiSoundID == -1; }
+
+	bool Play(bool abUnk);
+	bool Stop();
+
+	bool Release();
+
+	bool SetStaticAttenuation(UInt16 ausAttenuation);
+	bool SetReverbAttenuation(UInt16 ausAttenuation);
+	bool SetVolume(float afVolume);
+	bool SetSpeed(float afSpeed);
+	bool SetPosition(NiVector3& arPosition);
+	bool SetMinMaxDistance(float afMin, float afMax);
+	bool SetAttenuationCurve(SInt16 ausUnk1, SInt16 ausUnk2, UInt16 ausStaticAttenuation, UInt16 ausSystemAttenuation, UInt16 ausDistanceAttenuation);
+};
+static_assert(sizeof(BSSoundHandle) == 0xC);
+
+class BSTempEffectParticle : public BSTempEffect {
+public:
+	NiNode*	spParticleObject;
+	const char* pFileName;
+	NiNode* spParentNode;
+	NiTransform		transform;
+	DWORD			dword58;
+	BSSoundHandle Sound1;
+	BSSoundHandle Sound2;
+
+	static void Spawn(TESObjectCELL* apCell, float afLifetime, const char* apParticleFilename);
+};
+static_assert(sizeof(BSTempEffectParticle)==0x74);
+
+class BSTempEffectGeometryDecal : public BSTempEffect {
+public:
+	UInt32 unk18;
+	void* spShape;
+	NiNode* pParentNode;
+	DWORD dword24;
+	BYTE bDestroyed;
+	UINT8 pad1;
+	UINT8 pad2;
+	UINT8 pad3;
+	NiNode* spFadeNode;
+	NiRefObject* spObject30;
+	NiRefObject* spObject34;
+	NiVector3 Origin;
+	NiVector3 Direction;
+	float fScale;
+	float float54;
+	BGSTextureSet* pTextureSet;
+	DWORD dword5C;
+	UInt32 iBodyParts;
+};
+static_assert(sizeof(BSTempEffectGeometryDecal) == 0x64);
+
+struct DecalManager
+{
+	struct List14Item
+	{
+		UInt32					sevrDecalCount;
+		UInt8					byte04[4];
+		BGSImpactData* impactData;
+		BSTempEffectParticle* effectParticle;
+	};
+
+	NiObject* object00;		// 00
+	UInt8							byte04;			// 04
+	UInt8							pad05[3];		// 05
+	DList<BSTempEffectSimpleDecal>	list08;			// 08
+	DList<List14Item>				list14;			// 14
+	void* shaderAccum;	// 20
+	NiCamera* camera;		// 24
+
+	__forceinline static DecalManager* GetSingleton() { return *(DecalManager**)0x11C57F8; }
+
+	/*__forceinline void AddGeometryDecal(Decal* decal, Decal::Type decalType, bool ignoreDistToPlayer) 
+	{ ThisStdCall(0x4A10D0, this, decal, decalType, ignoreDistToPlayer); }*/
+};
+
+
 // Straight from OBSE. Needs to be debugged ! ! ! 
 // This is used all over the game code to manage actors and occassionally other objects.
 class ActorProcessManager
@@ -55,14 +197,20 @@ class DetectionData;
 // 64
 struct ActorHitData
 {
-	enum
+	enum EnumHitFlags
 	{
-		kHitData_IsCritical = 0x4,
-		kHitData_IsFatal = 0x10,
-		kHitData_ExplodePart = 0x40,
-		kHitData_DismemberPart = 0x20,
-		kHitData_CripplePart = 0x80,
-		kHitData_IsSneakAttackCritical = 0x400,
+		kFlag_TargetIsBlocking = 1 << 0,			//0x1
+		kFlag_TargetWeaponOut = 1 << 1,				//0x2
+		kFlag_IsCritical = 1 << 2,					//0x4
+		kFlag_OnDeathCritEffect = 1 << 3,			//0x8
+		kFlag_IsFatal = 1 << 4,						//0x10
+		kFlag_DismemberLimb = 1 << 5,				//0x20
+		kFlag_ExplodeLimb = 1 << 6,					//0x40
+		kFlag_CrippleLimb = 1 << 7,					//0x80
+		kFlag_BreakWeaponNonEmbedded = 1 << 8,		//0x100
+		kFlag_BreakWeaponEmbedded = 1 << 9,			//0x200
+		kFlag_IsSneakAttack = 1 << 10,				//0x400
+		kFlag_ArmorPenetrated = 0x80000000	// JIP only
 	};
 
 	Actor* source;		// 00
@@ -80,16 +228,25 @@ struct ActorHitData
 	float				limbDmg;		// 20
 	float				blockDTMod;		// 24
 	float				armorDmg;		// 28
-	float				flt2C;			// 2C
-	TESObjectWEAP* weapon;		// 30
+	float				weapDmg;		// 2C
+	TESObjectWEAP*		weapon;			// 30
 	float				healthPerc;		// 34
 	NiVector3			impactPos;		// 38
 	NiVector3			impactAngle;	// 44
 	UInt32				unk50;			// 50
 	UInt32				unk54;			// 54
 	UInt32				flags;			// 58
-	float				dmgMult;		// 5C
+	float				dmgMult;		// 5C	body part mult
 	UInt32				unk60;			// 60	Unused
+
+	void Print() const {
+		gLog.FormattedMessage("unk0C: %d, hitLocation: %d, unk50: %d, unk54: %d, flags: %d, unk60: %d",
+			unk0C, hitLocation, unk50, unk54, flags, unk60);
+	}
+
+	bool __forceinline isFlagOn(EnumHitFlags _bit) const {
+		return (flags & static_cast<UINT32>(_bit)) != 0;
+	}
 };
 
 struct PackageInfo
@@ -868,10 +1025,7 @@ public:
 	WeaponInfo							*weaponInfo;		// 114
 	AmmoInfo							*ammoInfo;			// 118
 	QueuedFile							*unk11C;			// 11C
-	UInt8								byt120;				// 120
-	UInt8								byt121;				// 121
-	UInt8								byt122;				// 122
-	UInt8								fil123;				// 123
+	NiRefObject							*object120;			// 120
 	UInt8								isUsingOneHandGrenade;
 	UInt8								isUsingOneHandMine;
 	UInt8								isUsingOneHandThrown;
@@ -902,8 +1056,18 @@ public:
 	UInt32								unk180[3];			// 180
 	UInt8								byte18C;			// 18C
 	UInt8								byte18D[3];			// 18D
-	UInt32								unk190[10];			// 190
-	void								*unk1B8;			// 1B8
+	UInt32								unk190[2];			// 190
+	float								flt198;				// 198
+	UInt8								byte19C;			// 19C
+	UInt8								byte19D;			// 19D
+	UInt8								byte19E;			// 19E
+	UInt8								byte19F;			// 19F
+	void* ptr1A0;											// 1A0
+	UInt32								unk1A4;				// 1A4
+	UInt32								unk1A8;				// 1A8
+	tList<Projectile>*					arrowProjectiles;	// 1AC
+	tList<void>							list1B0;			// 1B0
+	tList<ActiveEffect>*				activeEffects;		// 1B8 
 	MagicTarget							*magicTarget1BC;	// 1BC
 	AnimData							*animData;			// 1C0
 	BSAnimGroupSequence					*animSequence[3];	// 1C4

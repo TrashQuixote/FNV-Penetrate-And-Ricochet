@@ -54,6 +54,7 @@
  */
 
 class NiCamera;
+class bhkNiCollisionObject;
 class NiLODData;
 class ShadowSceneLight;	// 220, derives from NiRefObject
 class BSImageSpaceShader;
@@ -62,6 +63,8 @@ class NiScreenTexture;
 class NiPSysModifier;
 class NiRenderer;
 class NiGeometryData;
+// 0C
+
 
 struct NiUpdateData
 {
@@ -71,10 +74,14 @@ struct NiUpdateData
 	UInt8		byte06;				// 06
 	bool		updateGeomorphs;	// 07
 	bool		updateShadowScene;	// 08
-	UInt8		pad09[3];			// 09
+	UInt8		pad09;				// 09
+	UInt8		pad0A;				// 0A
+	UInt8		pad0B;				// 0B
 
 	NiUpdateData() {ZeroMemory(this, sizeof(NiUpdateData));}
+	
 };
+
 
 // 09C
 class NiAVObject : public NiObjectNET
@@ -86,8 +93,8 @@ public:
 	/*8C*/virtual void		UpdateControllers(const NiUpdateData& updParams);
 	/*90*/virtual void		ApplyTransform(NiMatrix33* arg1, NiVector3* arg2, bool arg3);
 	/*94*/virtual void		Unk_25(UInt32 arg);
-	/*98*/virtual void		Unk_26(UInt32 arg);
-	/*9C*/virtual NiAVObject* GetObjectByName(void* objName);	//NiFixedString
+	/*98*/virtual NiAVObject* GetObject_(const NiFixedString& arName);
+	/*9C*/virtual NiAVObject* GetObjectByName(NiFixedString* objName);	//NiFixedString
 	/*A0*/virtual void		SetSelectiveUpdateFlags(UInt8* bSelectiveUpdate, UInt32 bSelectiveUpdateTransform, UInt8* bRigid);
 	/*A4*/virtual void		UpdateDownwardPass(const NiUpdateData& updParams, UInt32 flags);
 	/*A8*/virtual void		UpdateSelectedDownwardPass(const NiUpdateData& updParams, UInt32 flags);
@@ -113,22 +120,36 @@ public:
 		kFlag_SelUpdateRigid =				1 << 4,
 	};
 
-	NiNode						* m_parent;				// 018 the implementation requires Func003A, so minimu NiNode.
-	UInt32						m_collisionObject;		// 01C
-	UInt32						m_kWorldBound;			// 020 three members used as array, plus the following float
-	UInt32						unk0024;				// 024 -
-	UInt32						unk0028;				// 028 -
-	float						flt002C;				// 02C -
-	UInt32						unk0030;				// 030 Init'd to 10000000000000001110b
-	NiMatrix33					m_localRotate;			// 34
-	NiVector3					m_localTranslate;		// 58
-	float						m_localScale;			// 64
-	NiMatrix33					m_worldRotate;			// 68
-	NiVector3					m_worldTranslate;		// 8C
-	float						m_worldScale;			// 98
+	NiNode* m_parent;								// 18
+	bhkNiCollisionObject* m_collisionObject;		// 1C
+	NiBound* m_kWorldBound;							// 20
+	DList<NiProperty>		m_propertyList;			// 24
+	UInt32					m_flags;				// 30
+	NiTransform				m_transformLocal;		// 34
+	NiTransform				m_transformWorld;		// 68
+	inline NiVector3& LocalTranslate() { return m_transformLocal.translate; }
+	inline NiVector3& WorldTranslate() { return m_transformWorld.translate; }
+	inline NiMatrix33& WorldRotate() { return m_transformWorld.rotate; }
+	inline NiMatrix33& LocalRotate() { return m_transformLocal.rotate; }
 	void Dump(UInt32 level, const char * indent);
 };
 STATIC_ASSERT(sizeof(NiAVObject) == 0x9C);
+
+
+// 0C
+class NiCollisionObject : public NiObject
+{
+public:
+	/*8C*/virtual void		Attach(NiAVObject* obj);
+	/*90*/virtual void		Unk_24(UInt32 arg);
+	/*94*/virtual void		Unk_25(void);
+	/*98*/virtual void		Unk_26(UInt32 arg);
+	/*9C*/virtual void		Unk_27(UInt32 version, UInt32 arg1);
+
+	NiNode* linkedNode;	// 08
+};
+
+
 
 #if 0
 
@@ -284,9 +305,43 @@ public:
 	NiTArray <NiAVObject *>		m_children;	// 09C
 
 	NiAVObject* GetBlock(const char* blockName);
+	NiNode* GetNode(const char* nodeName);
+	void __fastcall ToggleCollision(UInt8 flag);
+	void ResetCollision();
 
 };	// 0AC
 STATIC_ASSERT(sizeof(NiNode) == 0xAC);
+
+class BSFadeNode : public NiNode
+{
+public:
+	enum FadeType
+	{
+		kFade_Object = 1,
+		kFade_Item = 2,
+		kFade_Actor = 3,
+		kFade_Unknown6 = 6,
+		kFade_Unknown7 = 7,
+		kFade_Unknown8 = 8,
+		kFade_LODFadeOutMax = 0xA,
+	};
+
+	float			nearDistSqr;	// AC
+	float			farDistSqr;		// B0
+	float			lastFade;		// B4
+	float			currentFade;	// B8	[0.0, 1.0]; Used for fade-in/out
+	float			boundRadius;	// BC
+	float			timeSinceUpdate;// C0
+	UInt32			fadeType;		// C4
+	UInt32			frameCounter;	// C8
+	TESObjectREFR* linkedObj;		// CC
+	UInt32			unkD0[5];		// D0
+
+	__forceinline static BSFadeNode* Create() { return ThisStdCall<BSFadeNode*>(0xB4E150, CdeclCall<void*>(0xAA13E0, sizeof(BSFadeNode))); }
+
+	void __fastcall SetVisible(bool visible);
+};
+static_assert(sizeof(BSFadeNode) == 0xE4);
 
 class NiCamera : public NiAVObject
 {
@@ -327,6 +382,8 @@ public:
 	float				cameraFOV;			// BC
 };
 STATIC_ASSERT(sizeof(SceneGraph) == 0xC0);
+
+
 #if 0
 
 // F0
@@ -385,23 +442,7 @@ public:
 	float	unk0E4;	// 0E4 - init'd to 100
 };
 
-// F0
-class BSFadeNode : public NiNode
-{
-public:
-	BSFadeNode();
-	~BSFadeNode();
 
-	// overload Draw to do LOD-based fade
-
-	UInt8	unk0DC;			// 0DC
-	UInt8	unk0DD[3];		// 0DD
-	float	fNearDistSqr;	// 0E0
-	float	fFarDistSqr;	// 0E4
-	float	fCurrentAlpha;	// 0E8
-	UInt8	cMultType;		// 0EC
-	UInt8	unk0ED[3];		// 0ED
-};
 
 // EC
 class BSScissorNode : public NiNode

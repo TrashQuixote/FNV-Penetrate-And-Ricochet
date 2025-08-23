@@ -6,6 +6,12 @@
 #include "SafeWrite.h"
 #include "NiObjects.h"
 
+#define ADDR_ReturnTrue	0x8D0360
+
+enum kVtbl_VAR{
+	kVtbl_BSBound = 0x10C2B64
+};
+
 static const UInt32 s_TESObject_REFR_init	= 0x0055A2F0;	// TESObject_REFR initialization routine (first reference to s_TESObject_REFR_vtbl)
 static const UInt32	s_Actor_EquipItem		= 0x0088C650;	// maybe, also, would be: 007198E0 for FOSE	4th call from the end of TESObjectREFR::RemoveItem (func5F)
 static const UInt32	s_Actor_UnequipItem		= 0x0088C790;	// maybe, also, would be: 007133E0 for FOSE next sub after EquipItem
@@ -49,12 +55,9 @@ ScriptEventList* TESObjectREFR::GetEventList() const
 	return nullptr;
 }
 
-PlayerCharacter** g_thePlayer = (PlayerCharacter **)0x011DEA3C;
+PlayerCharacter* g_thePlayer = *(PlayerCharacter **)0x011DEA3C;
 
-PlayerCharacter* PlayerCharacter::GetSingleton()
-{
-	return *g_thePlayer;
-}
+
 
 QuestObjectiveTargets* PlayerCharacter::GetCurrentQuestObjectiveTargets()
 {
@@ -83,7 +86,7 @@ bool TESObjectREFR::IsMapMarker()
 // Less worse version as used by some modders 
 bool PlayerCharacter::SetSkeletonPath_v1c(const char* newPath)
 {
-	if (!bThirdPerson) {
+	if (!is3rdPerson) {
 		// ###TODO: enable in first person
 		return false;
 	}
@@ -98,7 +101,7 @@ bool TESObjectREFR::Update3D_v1c()
 	UInt8 kPlayerUpdate3DpatchFrom = 0x0B6;
 	UInt8 kPlayerUpdate3DpatchTo = 0x0EB;
 
-	if (this == *g_thePlayer) {
+	if (this == g_thePlayer) {
 		// Lets try to allow unloading the player3D never the less...
 		SafeWrite8(kPlayerUpdate3Dpatch, kPlayerUpdate3DpatchTo);
 	}
@@ -111,7 +114,7 @@ bool TESObjectREFR::Update3D_v1c()
 // Current basically not functioning version, but should show some progress in the end.. I hope
 bool PlayerCharacter::SetSkeletonPath(const char* newPath)
 {
-	if (!bThirdPerson) {
+	if (!is3rdPerson) {
 		// ###TODO: enable in first person
 		return false;
 	}
@@ -189,7 +192,7 @@ __declspec(naked) bool TESObjectREFR::GetDisabled() const
 
 bool TESObjectREFR::Update3D()
 {
-	if (this == *g_thePlayer) {
+	if (this == g_thePlayer) {
 #ifdef _DEBUG
 		TESModel* model = DYNAMIC_CAST(baseForm, TESForm, TESModel);
 		return (*g_thePlayer)->SetSkeletonPath(model->GetModelPath());
@@ -242,6 +245,42 @@ __declspec(naked) float __vectorcall GetDistance3D(const TESObjectREFR* ref1, co
 		psrlq	xmm0, 0x20
 		addss	xmm1, xmm0
 		sqrtss	xmm0, xmm1
+		retn
+	}
+}
+
+__declspec(naked) ContChangesEntry* Actor::GetWeaponInfo() const
+{
+	__asm
+	{
+		mov		eax, [ecx + 0x68]
+		test	eax, eax
+		jz		done
+		cmp		byte ptr[eax + 0x28], 1
+		ja		retnNULL
+		mov		eax, [eax + 0x114]
+		retn
+	retnNULL :
+		xor eax, eax
+			done :
+		retn
+	}
+}
+
+__declspec(naked) ContChangesEntry* Actor::GetAmmoInfo() const
+{
+	__asm
+	{
+		mov		eax, [ecx + 0x68]
+		test	eax, eax
+		jz		done
+		cmp		byte ptr[eax + 0x28], 1
+		ja		retnNULL
+		mov		eax, [eax + 0x118]
+		retn
+	retnNULL :
+		xor eax, eax
+	done :
 		retn
 	}
 }
@@ -376,13 +415,101 @@ ExtraContainerChanges::EntryDataList* TESObjectREFR::GetContainerChangesList() c
 double TESObjectREFR::GetHeadingAngle(const TESObjectREFR* to) const
 {
 	auto const from = this;
-	double result = (atan2(to->posX - from->posX, to->posY - from->posY) - from->rotZ) * 57.29577951308232;
+	double result = (atan2(to->position.x - from->position.x, to->position.y - from->position.y) - from->position.z) * 57.29577951308232;
 	if (result < -180)
 		result += 360;
 	else if (result > 180)
 		result -= 360;
 	return result;
 }
+
+__declspec(naked) void __fastcall TESObjectREFR::ToggleCollision(bool toggle)
+{
+	__asm
+	{
+		dec		dl
+		and dl, 0x40
+		mov		eax, [ecx]
+		cmp		dword ptr[eax + 0x100], ADDR_ReturnTrue
+		jnz		notActor
+		mov		eax, [ecx + 0x68]
+		test	eax, eax
+		jz		notActor
+		cmp		byte ptr[eax + 0x28], 1
+		ja		notActor
+		mov		eax, [eax + 0x138]
+		test	eax, eax
+		jz		notActor
+		mov		eax, [eax + 0x594]
+		test	eax, eax
+		jz		notActor
+		mov		eax, [eax + 8]
+		test	eax, eax
+		jz		notActor
+		and byte ptr[eax + 0x2D], 0xBF
+		or [eax + 0x2D], dl
+	notActor :
+		mov		eax, [ecx + 0x64]
+			test	eax, eax
+			jz		done
+			mov		ecx, [eax + 0x14]
+			test	ecx, ecx
+			jz		done
+			jmp		NiNode::ToggleCollision
+			done :
+		retn
+	}
+}
+
+__declspec(naked) BSBound* TESObjectREFR::GetBoundingBox() const
+{
+	__asm
+	{
+		mov		eax, [ecx]
+		cmp		dword ptr[eax + 0xFC], ADDR_ReturnTrue
+		jnz		getFromNode
+		mov		eax, [ecx + 0x68]
+		test	eax, eax
+		jz		getFromNode
+		cmp[eax + 0x28], 1
+		ja		getFromNode
+		mov		eax, [eax + 0x224]
+		retn
+	getFromNode :
+		mov		eax, [ecx + 0x64]
+		test	eax, eax
+		jz		done
+		mov		eax, [eax + 0x14]
+		test	eax, eax
+		jz		done
+		mov		edx, kVtbl_BSBound
+		mov		ecx, eax
+		jmp		NiObjectNET::GetExtraData
+		done :
+		retn
+	}
+}
+
+float TESObjectREFR::GetHeadingAngle_f(const TESObjectREFR* to) const
+{
+	auto const from = this;
+	float result = (atan2(to->position.x - from->position.x, to->position.y - from->position.y) - from->position.z) * 57.29578f;
+	if (result < -180)
+		result += 360;
+	else if (result > 180)
+		result -= 360;
+	return result;
+}
+
+
+float GetHeadingAngleX_f(TESObjectREFR* out,TESObjectREFR* to)
+{
+	float opposite = out->position.z - to->position.z;
+	float hypotenuse = out->GetDistance(to);
+	float fraction = opposite / hypotenuse;
+	return (asin(fraction) - out->rotation.x) * Flt180dPI;
+}
+
 
 // Code by JIP
 __declspec(naked) bool __fastcall TESObjectREFR::GetInSameCellOrWorld(TESObjectREFR* target) const
@@ -458,6 +585,7 @@ bool Actor::IsWeaponOut()
 {
 	return baseProcess && baseProcess->IsWeaponOut();
 }
+
 
 void PlayerCharacter::UpdateCamera(bool isCalledFromFunc21, bool _zero_skipUpdateLOD)
 {

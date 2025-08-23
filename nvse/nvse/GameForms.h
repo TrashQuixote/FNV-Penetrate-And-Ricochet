@@ -7,6 +7,88 @@
 #include "GameTypes.h"
 #include "GameBSExtraData.h"
 
+enum ActorValueCode : UInt32
+{
+	/*00*/kAVCode_Aggression,
+	/*01*/kAVCode_Confidence,
+	/*02*/kAVCode_Energy,
+	/*03*/kAVCode_Responsibility,
+	/*04*/kAVCode_Mood,
+	/*05*/kAVCode_Strength,
+	/*06*/kAVCode_Perception,
+	/*07*/kAVCode_Endurance,
+	/*08*/kAVCode_Charisma,
+	/*09*/kAVCode_Intelligence,
+	/*0A*/kAVCode_Agility,
+	/*0B*/kAVCode_Luck,
+	/*0C*/kAVCode_ActionPoints,
+	/*0D*/kAVCode_CarryWeight,
+	/*0E*/kAVCode_CritChance,
+	/*0F*/kAVCode_HealRate,
+	/*10*/kAVCode_Health,
+	/*11*/kAVCode_MeleeDamage,
+	/*12*/kAVCode_DamageResist,
+	/*13*/kAVCode_PoisonResist,
+	/*14*/kAVCode_RadResist,
+	/*15*/kAVCode_SpeedMult,
+	/*16*/kAVCode_Fatigue,
+	/*17*/kAVCode_Karma,
+	/*18*/kAVCode_XP,
+	/*19*/kAVCode_PerceptionCondition,
+	/*1A*/kAVCode_EnduranceCondition,
+	/*1B*/kAVCode_LeftAttackCondition,
+	/*1C*/kAVCode_RightAttackCondition,
+	/*1D*/kAVCode_LeftMobilityCondition,
+	/*1E*/kAVCode_RightMobilityCondition,
+	/*1F*/kAVCode_BrainCondition,
+	/*20*/kAVCode_Barter,
+	/*21*/kAVCode_BigGuns,
+	/*22*/kAVCode_EnergyWeapons,
+	/*23*/kAVCode_Explosives,
+	/*24*/kAVCode_Lockpick,
+	/*25*/kAVCode_Medicine,
+	/*26*/kAVCode_MeleeWeapons,
+	/*27*/kAVCode_Repair,
+	/*28*/kAVCode_Science,
+	/*29*/kAVCode_Guns,
+	/*2A*/kAVCode_Sneak,
+	/*2B*/kAVCode_Speech,
+	/*2C*/kAVCode_Survival,
+	/*2D*/kAVCode_Unarmed,
+	/*2E*/kAVCode_InventoryWeight,
+	/*2F*/kAVCode_Paralysis,
+	/*30*/kAVCode_Invisibility,
+	/*31*/kAVCode_Chameleon,
+	/*32*/kAVCode_NightEye,
+	/*33*/kAVCode_Turbo,
+	/*34*/kAVCode_FireResist,
+	/*35*/kAVCode_WaterBreathing,
+	/*36*/kAVCode_RadiationRads,
+	/*37*/kAVCode_BloodyMess,
+	/*38*/kAVCode_UnarmedDamage,
+	/*39*/kAVCode_Assistance,
+	/*3A*/kAVCode_ElectricResist,
+	/*3B*/kAVCode_FrostResist,
+	/*3C*/kAVCode_EnergyResist,
+	/*3D*/kAVCode_EmpResist,
+	/*3E*/kAVCode_Variable01,
+	/*3F*/kAVCode_Variable02,
+	/*40*/kAVCode_Variable03,
+	/*41*/kAVCode_Variable04,
+	/*42*/kAVCode_Variable05,
+	/*43*/kAVCode_Variable06,
+	/*44*/kAVCode_Variable07,
+	/*45*/kAVCode_Variable08,
+	/*46*/kAVCode_Variable09,
+	/*47*/kAVCode_Variable10,
+	/*48*/kAVCode_IgnoreCrippledLimbs,
+	/*49*/kAVCode_Dehydration,
+	/*4A*/kAVCode_Hunger,
+	/*4B*/kAVCode_SleepDeprivation,
+	/*4C*/kAVCode_DamageThreshold,
+	kAVCode_Max
+};
+
 enum FormType 
 {
 	kFormType_None = 0,					// 00
@@ -191,10 +273,10 @@ public:
 	BaseFormComponent();
 	~BaseFormComponent();
 
-	virtual void	Init(void);
-	virtual void	Free(void);
-	virtual void	CopyFromBase(BaseFormComponent * component);
-	virtual bool	CompareWithBase(BaseFormComponent * src);
+	/*000*/virtual void	Init(void);
+	/*004*/virtual void	Free(void);
+	/*008*/virtual void	CopyFromBase(BaseFormComponent* component);
+	/*00C*/virtual bool	CompareWithBase(BaseFormComponent* src);
 
 //	void		** _vtbl;	// 000
 };
@@ -341,7 +423,15 @@ public:
 	UInt8	typeID;					// 004
 	UInt8	typeIDPad[3];			// 005
 	UInt32	flags;					// 008
-	UInt32	refID;					// 00C
+	union {
+		UInt32	refID;					// 00C
+		struct {
+			UInt8 id[3];
+			UInt8 modIndex;
+		};
+	};
+	
+	
 #ifdef EDITOR
 	EditorData	editorData;			// +10
 #endif
@@ -389,6 +479,10 @@ public:
 	{
 		return CdeclCall<TESForm*>(0x465110, eType);
 	}
+
+	bool IsCreated() const { return modIndex == 0xFF; }
+
+	bool IsPlayer() const { return refID == 0x14; }
 };
 
 const char* GetFullName(TESForm* baseForm);
@@ -864,6 +958,8 @@ public:
 class BGSRepairItemList : public BaseFormComponent
 {
 public:
+
+
 	BGSRepairItemList();
 	~BGSRepairItemList();
 
@@ -874,6 +970,25 @@ public:
 class BGSEquipType : public BaseFormComponent
 {
 public:
+
+	enum EquipTypes
+	{
+		kEqpType_BigGuns,
+		kEqpType_EnergyWeapons,
+		kEqpType_SmallGuns,
+		kEqpType_MeleeWeapons,
+		kEqpType_UnarmedWeapons,
+		kEqpType_ThrowWeapons,
+		kEqpType_Mine,
+		kEqpType_BodyWear,
+		kEqpType_HeadWear,
+		kEqpType_HandWear,
+		kEqpType_Chems,
+		kEqpType_Stimpack,
+		kEqpType_Food,
+		kEqpType_Alcohol
+	};
+
 	BGSEquipType();
 	~BGSEquipType();
 
@@ -2383,7 +2498,21 @@ class TESObjectARMO : public TESBoundObject
 public:
 	TESObjectARMO();
 	~TESObjectARMO();
-
+	struct MovementSound
+	{
+		TESSound* sound;
+		UInt8			unk04[3];
+		UInt8			chance;
+		/*
+		0x11	Walk
+		0x12	Sneak
+		0x13	Run
+		0x14	Sneak (Armor)
+		0x15	Run (Armor)
+		0x16	Walk (Armor)
+		*/
+		UInt32			type;
+	};
 	// children
 	TESFullName					fullName;		// 030
 	TESScriptableForm			scriptable;		// 03C
@@ -2400,11 +2529,19 @@ public:
 	UInt16						armorRating;	// 178
 	UInt16						modifiesVoice;	// 17A
 	float						damageThreshold;// 17C
-	UInt32						armorFlags;		// 180
-	UInt32						unk184;			// 184
+	UInt8						armorFlags;				// 180
+	UInt8						pad181[3];				// 181
+	float						armorHealthDmgMult;		// 184	JIP only!
+	union												// 188
+	{
+		TESObjectARMO* audioTemplate;
+		tList<MovementSound>* movementSounds;
+	};
+	UInt8						overrideSounds;			// 18C
+	UInt8						pad18D[3];				// 18D
 	// 180
 };
-STATIC_ASSERT(sizeof(TESObjectARMO) == 0x188);
+STATIC_ASSERT(sizeof(TESObjectARMO) == 0x190);
 STATIC_ASSERT(offsetof(TESObjectARMO, damageThreshold) == 0x17C);
 
 // TESObjectBOOK (C4)
@@ -2918,8 +3055,11 @@ public:
 	UInt8 AttackAnimation() const;
 	void SetAttackAnimation(UInt8 attackAnim);
 	TESObjectIMOD* GetItemMod(UInt8 which);
+	// { which -= 1; ASSERT(which < 3); return effectMods[which]; }
 	UInt32 GetItemModEffect(UInt8 which)	{ which -= 1; ASSERT(which < 3); return effectMods[which]; }
+	// { which -= 1; ASSERT(which < 3); return value1Mod[which]; }
 	float GetItemModValue1(UInt8 which)		{ which -= 1; ASSERT(which < 3); return value1Mod[which]; }
+	// { which -= 1; ASSERT(which < 3); return value2Mod[which]; }
 	float GetItemModValue2(UInt8 which)		{ which -= 1; ASSERT(which < 3); return value2Mod[which]; }
 
 };
@@ -4959,31 +5099,41 @@ public:
 	UInt32		unk020;		// 020
 };
 
-struct ColorRGB
+union ColorRGBA
 {
-	UInt8	red;	// 000
-	UInt8	green;	// 001
-	UInt8	blue;	// 002
-	UInt8	alpha;	// 003 or unused if no alpha
-};	// 004 looks to be endian swapped !
+	struct
+	{
+		UInt8	r, g, b, a;
+	};
+	UInt32		rgba;
 
-struct DecalData
+	inline void operator=(UInt32 _rgba) { rgba = _rgba; }
+	inline operator UInt32() const { return rgba; }
+	inline UInt8 operator[](UInt32 index) const { return (&r)[index]; }
+};
+
+struct DecalInfo
 {
-	float		minWidth;		// 000
-	float		maxWidth;		// 004
-	float		minHeight;		// 008
-	float		maxHeight;		// 00C
-	float		depth;			// 010
-	float		shininess;		// 014
-	float		parallaxScale;	// 018
-	UInt8		parallaxPasses;	// 01C
-	UInt8		flags;			// 01D	Parallax, Alpha - Blending, Alpha - Testing
-	UInt8		unk01E[2];		// 01E
-	ColorRGB	color;			// 020
-};	// 024
+	enum
+	{
+		kFlag_Parallax = 1,
+		kFlag_AlphaBlend = 2,
+		kFlag_AlphaTest = 4
+	};
 
-STATIC_ASSERT(sizeof(DecalData) == 0x024);
-
+	float		minWidth;		// 00
+	float		maxWidth;		// 04
+	float		minHeight;		// 08
+	float		maxHeight;		// 0C
+	float		depth;			// 10
+	float		shininess;		// 14
+	float		parallaxScale;	// 18
+	UInt8		parallaxPasses;	// 1C
+	UInt8		flags;			// 1D
+	UInt8		pad1E[2];		// 1E
+	ColorRGBA	color;			// 20
+};
+STATIC_ASSERT(sizeof(DecalInfo) == 0x024);
 // BGSImpactData (78)
 class BGSImpactData : public TESForm
 {
@@ -4991,22 +5141,20 @@ public:
 	BGSImpactData();
 	~BGSImpactData();
 
-	struct Data
-	{
-		float	effectDuration;		// 000
-		UInt32	effectorientation;	// 004	Surface Normal, Projectile vector, Projectile reflection
-		float	angleThreshold;		// 008
-		float	placementRadius;	// 00C
-		UInt32	soundLevel;			// 010	enum
-		UInt32	flags;				// 014	No decal data
-	};	// 018
-
-	TESModel	model;			// 018
-	Data		data;			// 030	DATA
-	TESTexture	* textureSet;	// 048 DNAM Texture Set
-	TESSound	* sound1;		// 04C
-	TESSound	* sound2;		// 050
-	DecalData	decalData;		// 054 DODT [begining of DATA before form version 0x0A]
+	TESModel		model;				// 18
+	float			effectDuration;		// 30
+	UInt8			effectOrientation;	// 34	0 - Surface Normal, 1 - Projectile Vector, 2 - Projectile Reflection
+	UInt8			pad35[3];			// 35
+	float			angleThreshold;		// 38
+	float			placementRadius;	// 3C
+	UInt8			soundLevel;			// 40
+	UInt8			pad41[3];			// 41
+	UInt8			noDecalData;		// 44
+	UInt8			pad45[3];			// 45
+	BGSTextureSet* textureSet;		// 48
+	TESSound* sound1;			// 4C
+	TESSound* sound2;			// 50
+	DecalInfo		decalInfo;			// 54
 };
 
 STATIC_ASSERT(sizeof(BGSImpactData) == 0x078);
@@ -5019,9 +5167,8 @@ public:
 	~BGSImpactDataSet();
 
 	BGSPreloadable	preloadable;		// 018
-	UInt32 unk01C[(0x4C - 0x1C) >> 2];	// 01C
+	BGSImpactData* impactDatas[12];	// 1C
 };
-
 STATIC_ASSERT(offsetof(BGSImpactDataSet, preloadable) == 0x018);
 STATIC_ASSERT(sizeof(BGSImpactDataSet) == 0x4C);
 

@@ -5,6 +5,7 @@
 #include "GameForms.h"
 #include <vector>
 
+#define GetExtraType(xDataList, Type) (Type*)(xDataList)->GetByType(kXData_ ## Type)
 /*    Class							     vtbl	  Type  Size
  *   ----------------------------		------		--  --
  *	ExtraAction                        ????????		0E	14
@@ -493,6 +494,7 @@ public:
 		static EntryData* Create(TESForm* pForm, UInt32 count = 1, ExtraContainerChanges::ExtendDataList* pExtendDataList = NULL);
 		ExtendDataList * Add(ExtraDataList* newList);
 		bool Remove(ExtraDataList* toRemove, bool bFree = false);
+		ExtraDataList* GetEquippedExtra() const;
 
 		bool HasExtraLeveledItem()
 		{
@@ -526,6 +528,7 @@ public:
 		UInt8			pad[3];
 
 		static Data* Create(TESObjectREFR* owner);
+		double GetInventoryWeight() const;
 	};
 
 	Data	* data;	// 00C

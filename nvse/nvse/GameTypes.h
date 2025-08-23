@@ -877,3 +877,17 @@ public:
 			return -1;
 	}
 };
+
+class LightCS
+{
+	UInt32	owningThread = 0;
+	UInt32	enterCount = 0;
+
+public:
+	void Enter();
+	__forceinline void Leave()
+	{
+		if (!--enterCount)
+			owningThread &= 0;
+	}
+};

@@ -1,8 +1,5 @@
 #include "NiObjects.h"
 
-static TES* g_TES = *(TES**)0x11DEA10;
-static PlayerCharacter* g_thePlayerSingleton = *(PlayerCharacter**)0x11DEA3C;
-static GridCellArray* g_gridCellArray = g_TES->gridCellArray;
 
 void NiAVObject::Dump(UInt32 level, const char * indent)
 {
@@ -11,10 +8,10 @@ void NiAVObject::Dump(UInt32 level, const char * indent)
 	strcpy_s(locIndent, 257, indent);
 	if (strlen(indent) < 254)
 		strcat_s(locIndent, 257, "  ");
-	NiNode* niNode = GetAsNiNode();
+	NiNode* niNode = GetNiNode();
 	if (niNode)
 		childCount = niNode->m_children.Length();
-	_MESSAGE("[%0.4d]%s - name: '%s' [%0.8X] has %d children", level, locIndent, m_pcName, niNode, childCount);
+	_MESSAGE("[%0.4d]%s - name: '%s' [%0.8X] has %d children", level, locIndent, m_blockName, niNode, childCount);
 	for (UInt32 i = 0; i < childCount; i++)
 	{
 		NiAVObject* child = niNode->m_children[i];
@@ -26,8 +23,7 @@ void NiAVObject::Dump(UInt32 level, const char * indent)
 
 __declspec(naked) NiAVObject* __fastcall _GetRayCastObject(RayCastData* rcData)
 {
-
-	gLog.Message("_GetRayCastObject");
+	//gLog.Message("_GetRayCastObject");
 	__asm
 	{
 		push	ebx
@@ -60,7 +56,7 @@ __declspec(naked) NiAVObject* __fastcall _GetRayCastObject(RayCastData* rcData)
 		xorps	xmm0, xmm0
 		movaps  [ecx + 0x20], xmm0
 		movaps  [ecx + 0x30], xmm0
-		mov		eax, g_thePlayerSingleton
+		mov		eax, g_thePlayer
 		mov		ecx, [eax + 0x68]
 		mov		eax, [ecx + 0x138]
 		mov		ecx, [eax + 0x594]
@@ -83,12 +79,12 @@ __declspec(naked) NiAVObject* __fastcall _GetRayCastObject(RayCastData* rcData)
 	kUnitConv:
 		EMIT_PS_3(0x3E124DD2)
 	}
-	gLog.Message("_GetRayCastObject Done");
+	//gLog.Message("_GetRayCastObject Done");
 }
 
 __declspec(naked) bool NiVector4::RayCastCoords(const NiVector3& posVector, float* rotMatRow, float maxRange, SInt32 layerType)
 {
-	gLog.Message("RayCastCoords");
+	//gLog.Message("RayCastCoords");
 	__asm
 	{
 		push	ebp
@@ -123,5 +119,118 @@ __declspec(naked) bool NiVector4::RayCastCoords(const NiVector3& posVector, floa
 		leave
 		retn	0x10
 	}
-	gLog.Message("RayCastCoordsDone");
+	//gLog.Message("RayCastCoordsDone");
+}
+
+NiAVObject* NiNode::GetBlock(const char* blockName)
+{
+	//gLog.Message(m_blockName.handle);
+	//if (StrEqualCI(m_blockName.handle, blockName))
+	if (std::string_view(m_blockName.handle).compare(blockName)==0)
+		return this;
+	NiAVObject* found = NULL;
+	for (NiTArray<NiAVObject*>::Iterator iter(m_children); !iter.End(); ++iter) {
+		if (!*iter) continue;
+		if (iter->GetNiNode())
+			found = ((NiNode*)*iter)->GetBlock(blockName);
+		else if (std::string_view(m_blockName.handle).compare(blockName) == 0)
+			found = *iter;
+		else continue;
+		if (found) break;
+	}
+	return found;
+}
+
+NiNode* NiNode::GetNode(const char* nodeName) {
+	NiAVObject* found = GetBlock(nodeName);
+	return found ? found->GetNiNode() : NULL;
+}
+
+__declspec(naked) void __fastcall NiNode::ToggleCollision(UInt8 flag)
+{
+	__asm
+	{
+		mov		eax, [ecx + 0x1C]
+		test	eax, eax
+		jz		noColObj
+		mov		eax, [eax + 0x10]
+		test	eax, eax
+		jz		noColObj
+		push	ecx
+		mov		ecx, [eax + 8]
+		and byte ptr[ecx + 0x2D], 0xBF
+		or [ecx + 0x2D], dl
+		push	edx
+		mov		ecx, eax
+		mov		eax, [ecx]
+		call	dword ptr[eax + 0xC4]
+		pop		edx
+		pop		ecx
+		noColObj :
+		movzx	eax, word ptr[ecx + 0xA6]
+			test	eax, eax
+			jz		done
+			push	esi
+			push	edi
+			mov		esi, [ecx + 0xA0]
+			mov		edi, eax
+			ALIGN 16
+			iterHead:
+		dec		edi
+			js		iterEnd
+			mov		ecx, [esi]
+			add		esi, 4
+			test	ecx, ecx
+			jz		iterHead
+			mov		eax, [ecx]
+			cmp		dword ptr[eax + 0xC], ADDR_ReturnThis
+			jnz		iterHead
+			call	NiNode::ToggleCollision
+			jmp		iterHead
+			ALIGN 16
+			iterEnd:
+		pop		edi
+			pop		esi
+			done :
+		retn
+	}
+}
+
+
+__declspec(naked) void NiNode::ResetCollision()
+{
+	__asm
+	{
+		mov		eax, [ecx + 0x1C]
+		test	eax, eax
+		jz		noColObj
+		or byte ptr[eax + 0xC], 0x40
+	noColObj:
+		movzx	eax, word ptr[ecx + 0xA6]
+		test	eax, eax
+		jz		done
+		push	esi
+		push	edi
+		mov		esi, [ecx + 0xA0]
+		mov		edi, eax
+		ALIGN 16
+	iterHead:
+		dec		edi
+		js		iterEnd
+		mov		ecx, [esi]
+		add		esi, 4
+		test	ecx, ecx
+		jz		iterHead
+		mov		eax, [ecx]
+		cmp		dword ptr[eax + 0xC], ADDR_ReturnThis
+		jnz		iterHead
+		call	NiNode::ResetCollision
+		jmp		iterHead
+		ALIGN 16
+	iterEnd:
+		pop		edi
+		pop		esi
+	done :
+		retn
+	}
 }

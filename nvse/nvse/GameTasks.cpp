@@ -52,18 +52,10 @@ IOManager* IOManager::GetSingleton()
 }
 #endif
 
-ModelLoader* ModelLoader::GetSingleton()
-{
-	return *g_modelLoader;
-}
 
 void ModelLoader::QueueReference(TESObjectREFR* refr, UInt32 arg1, bool ifInMainThread)
 {
 	ThisStdCall(kModelLoader_QueueReference, this, refr, arg1, (UInt32)ifInMainThread);	// arg1 is encoded based on the parent cell and arg2 is most likely a boolean
 }
 
-UInt32* BSTask::GetCounterSingleton()
-{
-	return kBSTaskCounter;
-}
 

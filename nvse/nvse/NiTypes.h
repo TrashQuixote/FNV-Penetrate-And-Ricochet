@@ -2,6 +2,7 @@
 #include "Utilities.h"
 #if RUNTIME
 
+
 const UInt32 _NiTMap_Lookup = 0x00853130;
 
 #endif
@@ -29,6 +30,7 @@ struct NiVector3
 	__forceinline __m128 PS3() const { return PS() & GET_PS(4); }
 	__forceinline NiVector3& SetPS(const __m128 rhs)
 	{
+		
 		_mm_storeu_si64(this, _mm_castps_si128(rhs));
 		_mm_store_ss(&z, _mm_unpackhi_ps(rhs, rhs));
 		return *this;
@@ -50,6 +52,7 @@ struct NiVector3
 	__forceinline NiVector3& operator*=(float s) { return SetPS(*this * s); }
 	__forceinline NiVector3& operator*=(__m128 packedPS) { return SetPS(*this * packedPS); }
 
+	inline operator float* () { return &x; }
 	__forceinline void operator=(const NiVector3& rhs)
 	{
 		_mm_storeu_si64(this, _mm_loadu_si64(&rhs));
@@ -65,12 +68,23 @@ struct NiVector3
 		y *= rhs.y;
 		z *= rhs.z;
 	}
+
+	// add by me for convenience
+	__forceinline void MoveAlone(const NiVector3& _direction, float depth) {
+		__m128 _depthVec = _mm_set_ps(depth, depth, depth, depth);
+		__m128 _direVec = _direction.PS();
+		__m128 _increasement = _mm_mul_ps(_direVec,_depthVec );
+		*this += _increasement;
+	}
+
+	
 	inline float __vectorcall Length() const { return Length_V4(PS3()); }
 	__m128 __vectorcall CrossProduct(const NiVector3& vB) const;
 	NiVector3& Normalize();
 };
 
 float __vectorcall Point2Distance(const NiVector3& pt1, const NiVector3& pt2);
+float __vectorcall Point3Distance(const NiVector3& pt1, const NiVector3& pt2);
 
 __forceinline NiVector3 GetVector(const NiVector3& begin, const NiVector3& end) {
 	return NiVector3{ (end.x - begin.x),(end.y - begin.y),(end.z - begin.z) };
@@ -80,7 +94,7 @@ __forceinline NiVector3 ScaleVector(const NiVector3& vec, const NiVector3& scale
 	return NiVector3{ (vec.x * scale.x),(vec.y * scale.y),(vec.z * scale.z) };
 }
 __m128 __vectorcall Normalize_V4(__m128 inPS);
-
+__m128 __vectorcall GetAnglesBetweenPoints(__m128 pt1, __m128 pt2);
 // 10 - always aligned?
 struct NiVector4
 {
@@ -136,15 +150,12 @@ struct NiVector4
 };
 
 // 10 - always aligned?
-struct NiQuaternion
-{
-	float	x, y, z, w;
-};
+
 
 // 24
 struct NiMatrix33
 {
-	float	cr[3][3];
+	float	cr[3][3] ;
 
 	NiMatrix33() {}
 	__forceinline NiMatrix33(float m00, float m10, float m20, float m01, float m11, float m21, float m02, float m12, float m22)
@@ -166,8 +177,27 @@ struct NiMatrix33
 		_mm_storeu_ps(&cr[0][4], _mm_loadu_ps(&rhs.cr[0][4]));
 		cr[0][8] = rhs.cr[0][8];
 	}
+
 	inline operator float* () const { return (float*)this; }
 	float __vectorcall From2Points(__m128 pt1, __m128 pt2);
+	NiMatrix33& __vectorcall FromEulerPRY(__m128 pry);
+	NiMatrix33& __vectorcall FromEulerPRYInv(__m128 pry);
+	__m128 __vectorcall ToEulerPRY() const;
+	__m128 __vectorcall ToEulerPRYAlt() const;
+	__m128 __vectorcall ToEulerPRYInv() const;
+	float __vectorcall ExtractPitch() const;
+	float __vectorcall ExtractRoll() const;
+	float __vectorcall ExtractYaw() const;
+
+	NiMatrix33& __fastcall MultiplyMatrices(const NiMatrix33& matB);
+	NiMatrix33& __fastcall MultiplyMatricesInv(const NiMatrix33& matB);
+	__m128 __vectorcall MultiplyVector(__m128 vec) const;
+	NiMatrix33& __vectorcall Rotate(__m128 rot);
+
+	__forceinline void operator=(const NiVector3& pry) { FromEulerPRY(pry.PS()); }
+	__forceinline void operator=(__m128 pry) { FromEulerPRY(pry); }
+	__forceinline NiMatrix33& operator*=(const NiMatrix33& rhs) { return MultiplyMatrices(rhs); }
+	__forceinline __m128 operator*(__m128 vec) const { return MultiplyVector(vec); }
 };
 
 // 34
@@ -216,6 +246,7 @@ struct NiViewport
 };
 
 
+
 // 1C
 struct NiFrustum
 {
@@ -250,6 +281,40 @@ struct NiPlane
 	float		offset;
 };
 
+
+struct NiBound
+{
+	NiVector3	center;
+	float		radius;
+
+	NiBound() {}
+	__forceinline NiBound(float cX, float cY, float cZ, float rad) : center(cX, cY, cZ), radius(rad) {} 
+	__forceinline NiBound(const NiBound& rhs) { *this = rhs; }
+	__forceinline explicit NiBound(const __m128 rhs) { SetPS(rhs); }
+
+	__forceinline void operator=(NiBound&& rhs)
+	{
+		center.x = rhs.center.x;
+		center.y = rhs.center.y;
+		center.z = rhs.center.z;
+		radius = rhs.radius;
+	}
+	__forceinline void operator=(const NiBound& rhs) { SetPS(rhs.PS()); }
+
+	__forceinline NiBound& SetPS(const __m128 rhs)
+	{
+		_mm_storeu_ps(&center.x, rhs);
+		return *this;
+	}
+
+	inline operator float* () { return &center.x; }
+	__forceinline __m128 PS() const { return _mm_loadu_ps(&center.x); }
+
+	UInt8 __fastcall CalculateSide(const NiPlane& plane) const;
+	//void Merge(const NiBound* other) { ThisCall(0xA7F3F0, this, other); }
+};
+
+
 // 10
 // NiTArrays are slightly weird: they can be sparse
 // this implies that they can only be used with types that can be NULL?
@@ -259,7 +324,8 @@ struct NiPlane
 template <typename T>
 struct NiTArray
 {
-	void	** _vtbl;		// 00
+	//void	** _vtbl;		 00
+	virtual void* Destroy(UINT32 doFree);
 	T		* data;			// 04
 	UInt16	capacity;		// 08 - init'd to size of preallocation
 	UInt16	firstFreeEntry;	// 0A - index of the first free entry in the block of free entries at the end of the array (or numObjs if full)
@@ -272,7 +338,7 @@ struct NiTArray
 		return NULL;
 	}
 
-	T Get(UInt32 idx) { return (*this)[idx]; }
+	T Get(UInt32 idx) { return data[idx]; }
 	UInt16 Size() const { return firstFreeEntry; }
 	bool Empty() const { return !firstFreeEntry; }
 	T* Data() const { return const_cast<T*>(data); }
@@ -291,6 +357,31 @@ struct NiTArray
 	{
 		ThisStdCall(0x8696E0, this, newCapacity);
 	}
+
+	class Iterator
+	{
+		friend NiTArray; 
+
+		T* pData;
+		UInt32		count;
+
+	public:
+		explicit operator bool() const { return count != 0; }
+		bool End() const { return !count; }
+		void operator++()
+		{
+			pData++;
+			count--;
+		}
+
+		T& operator*() const { return *pData; }
+		T& operator->() const { return *pData; }
+		T& Get() const { return *pData; }
+
+		Iterator(NiTArray& source) : pData(source.data), count(source.firstFreeEntry) {} 
+	};
+
+	Iterator Begin() { return Iterator(*this); } 
 };
 
 #if RUNTIME
@@ -647,6 +738,16 @@ struct alignas(16) AlignedVector4
 		return *this;
 	}
 
+	__forceinline __m128 operator+(__m128 packedPS) const { return PS() + packedPS; }
+	__forceinline __m128 operator-(__m128 packedPS) const { return PS() - packedPS; }
+	__forceinline __m128 operator*(float s) const { return PS() * _mm_set_ps1(s); }
+	__forceinline __m128 operator*(__m128 packedPS) const { return PS() * packedPS; }
+
+	__forceinline AlignedVector4& operator+=(__m128 packedPS) { return SetPS(*this + packedPS); }
+	__forceinline AlignedVector4& operator-=(__m128 packedPS) { return SetPS(*this - packedPS); }
+	__forceinline AlignedVector4& operator*=(float s) { return SetPS(*this * s); }
+	__forceinline AlignedVector4& operator*=(__m128 packedPS) { return SetPS(*this * packedPS); }
+
 
 	inline operator float* () { return &x; }
 	inline operator NiVector3& () const { return *(NiVector3*)this; }
@@ -655,6 +756,8 @@ struct alignas(16) AlignedVector4
 };
 
 typedef AlignedVector4 hkVector4;
+
+struct hkCdBody;
 
 struct RayCastData
 {
@@ -668,7 +771,7 @@ struct RayCastData
 	UInt32		unk28[6];	// 28
 	float		flt40;		// 40
 	UInt32		unk44[15];	// 44
-	void* cdBody;	// 80
+	hkCdBody* cdBody;	// 80
 	UInt32		unk84[3];	// 84
 	hkVector4	vector90;	// 90
 	UInt32		unkA0[3];	// A0
@@ -677,5 +780,140 @@ struct RayCastData
 };
 static_assert(sizeof(RayCastData) == 0xB0);
 
-
 float __vectorcall Point3Distance(const NiVector3& pt1, const NiVector3& pt2);
+class hkQuaternion;
+class AxisAngle;
+
+
+struct NiQuaternion
+{
+	float	x, y, z, w;
+
+	NiQuaternion() {}
+	__forceinline NiQuaternion(float _w, float _x, float _y, float _z) : w(_w), x(_x), y(_y), z(_z) {}
+	__forceinline NiQuaternion(const NiQuaternion& from) { *this = from; }
+	__forceinline explicit NiQuaternion(const NiMatrix33& rotMat) { *this = rotMat; }
+	__forceinline explicit NiQuaternion(const NiVector3& pry) { *this = pry; }
+	__forceinline explicit NiQuaternion(const AxisAngle& axisAngle) { *this = axisAngle; }
+	__forceinline explicit NiQuaternion(const hkQuaternion& hkQt) { *this = hkQt; }
+	__forceinline explicit NiQuaternion(const __m128 rhs) { SetPS(rhs); }
+
+	__forceinline void operator=(NiQuaternion&& rhs)
+	{
+		w = rhs.w;
+		x = rhs.x;
+		y = rhs.y;
+		z = rhs.z;
+	}
+	__forceinline void operator=(const NiQuaternion& rhs) { SetPS(rhs.PS()); }
+	__forceinline void operator=(const NiMatrix33& rotMat) { FromRotationMatrix(rotMat); }
+	__forceinline void operator=(const NiVector3& pry) { FromEulerPRY(pry.PS()); }
+	__forceinline void operator=(const AxisAngle& axisAngle) { FromAxisAngle(axisAngle); }
+	void operator=(const hkQuaternion& hkQt);
+
+	__forceinline NiQuaternion& SetPS(const __m128 rhs)
+	{
+		_mm_storeu_ps(&w, rhs);
+		return *this;
+	}
+
+	__forceinline __m128 operator+(const NiQuaternion& rhs) const { return PS() + rhs.PS(); }
+
+	__forceinline __m128 operator-(const NiQuaternion& rhs) const { return PS() - rhs.PS(); }
+
+	__forceinline __m128 operator*(float s) const { return PS() * _mm_set_ps1(s); }
+	__forceinline __m128 operator*(const NiQuaternion& rhs) const { return MultiplyQuaternion(rhs); }
+	__forceinline __m128 operator*(__m128 vec) const { return MultiplyVector(vec); }
+
+	__forceinline NiQuaternion& operator+=(const NiQuaternion& rhs) { return SetPS(*this + rhs); }
+	__forceinline NiQuaternion& operator-=(const NiQuaternion& rhs) { return SetPS(*this - rhs); }
+	__forceinline NiQuaternion& operator*=(float s) { return SetPS(*this * s); }
+	__forceinline NiQuaternion& operator*=(const NiQuaternion& rhs) { return SetPS(*this * rhs); }
+
+	__forceinline bool operator==(const NiQuaternion& rhs) const { return Equal_V4(PS(), rhs.PS()); }
+	__forceinline bool operator!=(const NiQuaternion& rhs) const { return !(*this == rhs); }
+
+	inline operator float* () { return &w; }
+	__forceinline __m128 PS() const { return _mm_loadu_ps(&w); }
+
+	NiQuaternion& __vectorcall FromEulerPRY(__m128 pry);
+	NiQuaternion& __vectorcall FromEulerYPR(__m128 pry);
+	NiQuaternion& __fastcall FromRotationMatrix(const NiMatrix33& rotMat);
+	float __vectorcall From2Points(__m128 pt1, __m128 pt2);
+	NiQuaternion& __fastcall FromAxisAngle(const AxisAngle& axisAngle);
+
+	__m128 __vectorcall MultiplyVector(__m128 vec) const;
+	__m128 __vectorcall MultiplyQuaternion(const NiQuaternion& rhs) const;
+
+	__forceinline __m128 Invert() const { return PS() ^ _mm_load_ps((const float*)0x10C8780); }
+
+	__forceinline __m128 Negate() const { return PS() ^ GET_PS(2); }
+
+	__forceinline float __vectorcall DotProduct(const NiQuaternion& rhs) const
+	{
+		__m128 k = _mm_setzero_ps();
+		return _mm_cvtss_f32(_mm_hadd_ps(_mm_hadd_ps(PS() * rhs.PS(), k), k));
+	}
+
+	NiQuaternion& Normalize() { return SetPS(Normalize_V4(PS())); }
+
+	__m128 __vectorcall ToEulerPRY() const;
+	__m128 __vectorcall ToEulerYPR() const;
+
+	NiQuaternion& Rotate(const NiQuaternion& rot) { return *this *= rot; }
+	NiQuaternion& Rotate(const AxisAngle& rot) { return *this *= NiQuaternion(rot); }
+	NiQuaternion& __vectorcall Rotate(__m128 pry);
+
+	__m128 __vectorcall Lerp(const NiQuaternion& qb, float t) const;
+	__m128 __vectorcall Slerp(const NiQuaternion& qb, float t) const;
+
+	void Dump() const;
+};
+
+
+struct AxisAngle
+{
+	NiVector3	axis;
+	float		theta;
+
+	AxisAngle() {}
+	__forceinline AxisAngle(float x, float y, float z, float t) : axis(x, y, z), theta(t) {}
+	__forceinline explicit AxisAngle(const NiVector3& _axis, float t) : axis(_axis), theta(t) {}
+	__forceinline AxisAngle(const AxisAngle& from) { *this = from; }
+	__forceinline explicit AxisAngle(const NiVector3& pry) { *this = pry; }
+	__forceinline explicit AxisAngle(const NiMatrix33& rotMat) { *this = rotMat; }
+	__forceinline explicit AxisAngle(const NiQuaternion& qt) { *this = qt; }
+	__forceinline explicit AxisAngle(const __m128 rhs) { SetPS(rhs); }
+
+	__forceinline void operator=(AxisAngle&& from)
+	{
+		axis.x = from.axis.x;
+		axis.y = from.axis.y;
+		axis.z = from.axis.z;
+		theta = from.theta;
+	}
+	__forceinline void operator=(const AxisAngle& from) { SetPS(from.PS()); }
+	__forceinline void operator=(const NiVector3& pry) { FromEulerPRY(pry.PS()); }
+	__forceinline void operator=(const NiMatrix33& rotMat) { FromRotationMatrix(rotMat); }
+	__forceinline void operator=(const NiQuaternion& qt) { FromQuaternion(qt); }
+
+	__forceinline AxisAngle& SetPS(const __m128 rhs)
+	{
+		_mm_storeu_ps(&axis.x, rhs);
+		return *this;
+	}
+
+	inline operator float* () { return &axis.x; }
+	__forceinline __m128 PS() const { return _mm_loadu_ps(&axis.x); }
+
+	__forceinline bool operator==(const AxisAngle& rhs) const { return Equal_V4(PS(), rhs.PS()); }
+	__forceinline bool operator!=(const AxisAngle& rhs) const { return !(*this == rhs); }
+
+	AxisAngle& __vectorcall FromEulerPRY(__m128 pry);
+	AxisAngle& __fastcall FromRotationMatrix(const NiMatrix33& rotMat);
+	AxisAngle& __fastcall FromQuaternion(const NiQuaternion& qt);
+
+	__m128 __vectorcall ToEulerPRY() const;
+
+	void Dump() const;
+};
