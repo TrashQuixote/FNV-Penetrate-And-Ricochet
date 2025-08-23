@@ -1,5 +1,11 @@
 #pragma once
+#include <unordered_set>
 #include <chrono>
+#include <random>
+#include <array>
+#include <variant>
+#include <intrin.h>
+#include "nvse/GameSettings.h"
 #include "nvse/PluginAPI.h"
 #include "nvse/GameData.h"
 #include "nvse/SafeWrite.h"
@@ -7,15 +13,47 @@
 #include "GameForms.h"
 #include "GameObjects.h"
 #include "NiPoint.h"
-#include "NiObjects.h"
 #include "internal/class_vtbls.h"
 #include "GameExtraData.h"
+#include "Gathering_GameOSInput.h"
+#include "GameUI.h"
+/*
+float	radius;					// 00
+float	widthX;					// 04
+float	widthY;					// 08
+float	height;					// 0C
+float	DPS;					// 10
+float	medicineSkillMult;		// 14
+float	survivalSkillMult;		// 18
+float	paralysis;				// 1C
+float	healRate;				// 20
+float	fatigueReturnRate;		// 24
+float	perceptionCondition;	// 28
+float	eyeHeight;				// 2C
+SInt32	aggression;				// 30
+SInt32	assistance;				// 34
+float	walkSpeed;				// 38
+float	runSpeed;				// 3C
+UInt8	hasNoCrippledLegs;		// 40
+UInt8	pad41[3];				// 41
+UInt32	flags;					// 44
+*/
+
 
 using _FactionListData = TESActorBaseData::FactionListData;
-
+#define BodyPart(_part) TESBipedModelForm::EPartBit::ePart_##_part
 #define ADDR_ReturnTrue			0x8D0360
+#define ADDR_ReturnThis			0x6815C0
+#define ADDR_ReturnThis2		0xE68810
 #define UseInventoryThings 0
 #define UnuseInThisPlugin 1
+#define IS_REFERENCE(form) ((*(UInt32**)form)[0xF0 >> 2] == ADDR_ReturnTrue)
+#define NOT_REFERENCE(form) ((*(UInt32**)form)[0xF0 >> 2] != ADDR_ReturnTrue)
+#define IS_ACTOR(form) ((*(UInt32**)form)[0x100 >> 2] == ADDR_ReturnTrue)
+#define NOT_ACTOR(form) ((*(UInt32**)form)[0x100 >> 2] != ADDR_ReturnTrue)
+#define IS_PROJECTILE(form) ((*(UInt32**)form)[0x224 >> 2] == ADDR_ReturnTrue)
+#define IS_NODE(object) ((*(UInt32**)object)[0xC >> 2] == ADDR_ReturnThis)
+#define IS_GEOMETRY(object) ((*(UInt32**)object)[0x18 >> 2] == ADDR_ReturnThis2)
 
 //#if UnuseInThisPlugin 
 typedef InventoryRef* (*_InventoryRefGetForID)(UInt32 refID);
@@ -24,6 +62,49 @@ extern _InventoryRefGetForID InventoryRefGetForID;
 typedef TESObjectREFR* (__stdcall* _InventoryRefCreate)(TESObjectREFR* container, TESForm* itemForm, SInt32 countDelta, ExtraDataList* xData);
 extern _InventoryRefCreate InventoryRefCreate;
 //#endif
+
+class ExtraStartingPosition : public BSExtraData
+{
+public:
+	NiVector3	posVector;	// 0C
+	NiVector3	rotVector;	// 18
+};
+
+/*
+ArmorClass enum
+Light, Medium, Heavy Armor
+*/
+enum class ArmorClass {
+	None,Light,Medium,Heavy
+};
+
+enum class WeapClass {
+	None, OneHandGun, TwoHandGun, TwoHandHeavyGun,
+	OneHandMelee,TwoHandMelee,Throwable
+};
+
+// copy from xnvse
+class MatchBySlot : public FormMatcher
+{
+	UInt32 m_slotMask;
+public:
+	MatchBySlot(UInt32 slot) : m_slotMask(TESBipedModelForm::MaskForSlot(slot)) {}
+	bool Matches(TESForm* pForm) const {
+		UInt32 formMask = 0;
+		if (pForm) {
+			if (pForm->IsWeapon()) {
+				formMask = TESBipedModelForm::eSlot_Weapon;
+			}
+			else {
+				TESBipedModelForm* pBip = DYNAMIC_CAST(pForm, TESForm, TESBipedModelForm);
+				if (pBip) {
+					formMask = pBip->partMask;
+				}
+			}
+		}
+		return (formMask & m_slotMask) != 0;
+	}
+};
 
 
 void InitInv(const NVSEDataInterface* nvse_data) {
@@ -131,7 +212,7 @@ struct LipTask;
 struct ProcessManager
 {
 	UInt32									unk000;				// 000
-	NiTArray<void*>					objects;			// 004
+	NiTArray<MobileObject*>					objects;			// 004
 	UInt32									beginOffsets[4];	// 014	0: High, 1: Mid-High, 2: Mid-Low, 3: Low
 	UInt32									endOffsets[4];		// 024
 	UInt32									offsets034[4];		// 034	Same as beginOffsets
@@ -139,7 +220,7 @@ struct ProcessManager
 	tList<void>								list058;			// 058
 	tList<void>						tempEffects;		// 060
 	tList<void>						muzzFlashList;		// 068
-	tList<void>								list070;			// 070
+	tList<Projectile*>								list070;			// 070
 	tList<void>								list078;			// 078
 	tList<Actor>							highActors;			// 080
 	Actor* nearestActors[50];	// 088
@@ -176,7 +257,7 @@ struct ProcessManager
 	UInt32									crimeNumber;		// 103B8
 	float									removeDeadActorsTime;	// 103BC
 	UInt32									unk103C0[3];		// 103C0
-
+	__forceinline static ProcessManager* Get() { return (ProcessManager*)0x11E0E80; }
 };
 
 
@@ -221,7 +302,7 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 	}
 }
 
-
+class hkpRigidBody;
 
 	class Projectile : public MobileObject
 	{
@@ -280,7 +361,7 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 			TESObjectREFR* refr;			// 00
 			NiVector3		pos;			// Gotten from JIP 04
 			NiVector3		rot;			// Gotten from JIP 10
-			void* rigidBody;				// 1C type - hkpRigidBody 
+			hkpRigidBody* rigidBody;				// 1C type - hkpRigidBody 
 			UInt32			materialType;	// 20, gotten from JIP
 			SInt32			hitLocation;	// 24
 			UInt32			unk28;			// 28
@@ -337,6 +418,7 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 
 		[[nodiscard]] ImpactData* GetImpactData() const;
 		Projectile::ImpactData* GetImpactDataAlt() const;
+		TESObjectREFR* GetImpactRefAlt() const;
 		// Copied from Tweaks
 		static Projectile* __cdecl Spawn(BGSProjectile* projectile, Actor* source, CombatController* combatCtrl, TESObjectWEAP* sourceWeap,
 			NiVector3 pos, float rotZ, float rotX, float angularMomentumZ, float angularMomentumX, TESObjectCELL* cell,
@@ -469,6 +551,21 @@ __declspec(naked) bhkCharacterController* TESObjectREFR::GetCharacterController(
 		return nullptr;
 	}
 
+	inline TESObjectREFR* Projectile::GetImpactRefAlt() const
+	{
+		const ListNode<ImpactData>* traverse = impactDataList.Head();
+		if (!traverse) return nullptr;
+		do
+		{
+			ImpactData* impactData = traverse->data;
+			if (impactData && impactData->refr)
+			{
+				return impactData->refr;
+			}
+		} while (traverse = traverse->next);
+		return nullptr;
+	}
+
 
 // From Tweaks
 Projectile* __cdecl Projectile::Spawn(BGSProjectile* projectile, Actor* source, CombatController* combatCtrl, TESObjectWEAP* sourceWeap,
@@ -589,19 +686,37 @@ TESObjectREFR* __fastcall GetEquippedItemRef(Actor* actor, UInt32 slotIndex)
 }
 
 
-float __forceinline GetHelmatDT(Actor* _actor) {
-	//float HeadDT = GetArmorEffectiveDX(GetEquippedItemRef(_actor, 9), 0x4BE0B0);// headband
-	//return HeadDT;
+struct DTDR {
+	float DT{0};
+	float DR{0};
+
+	DTDR() :DT(0),DR(0){}
+	DTDR(float _dt,float _dr):DT(_dt),DR(_dr) {}
+};
+
+float __forceinline GetEqHelmetDT(Actor* _actor) {
 	return GetArmorEffectiveDX(GetEquippedItemRef(_actor, 9), 0x4BE0B0);
 }
 
-float __forceinline GetArmorDT(Actor* _actor) {
-	//float BodyDT = GetArmorEffectiveDX(GetEquippedItemRef(_actor, 2), 0x4BE0B0);// upper body
-	//return BodyDT;
-
-	return GetArmorEffectiveDX(GetEquippedItemRef(_actor, 9), 0x4BE0B0);
+float __forceinline GetEqHelmetDR(Actor* _actor) {
+	return GetArmorEffectiveDX(GetEquippedItemRef(_actor, 9), 0x4BDF90);
 }
 
+float __forceinline GetEqArmorDT(Actor* _actor) {
+	return GetArmorEffectiveDX(GetEquippedItemRef(_actor, 2), 0x4BE0B0);
+}
+
+float __forceinline GetEqArmorDR(Actor* _actor) {
+	return GetArmorEffectiveDX(GetEquippedItemRef(_actor, 2), 0x4BDF90);
+}
+
+auto __forceinline GetEqHelmetDTDR(Actor* _actor) {
+	return DTDR{ GetEqHelmetDT(_actor),GetEqHelmetDR(_actor)};
+}
+
+auto __forceinline GetEqArmorDTDR(Actor* _actor) {
+	return DTDR{ GetEqArmorDT(_actor),GetEqArmorDR(_actor) };
+}
 
 float GetP2PRayCastRange(const NiVector3& vec_a,const NiVector3& vec_b)
 {
@@ -614,10 +729,10 @@ float GetP2PRayCastRange(const NiVector3& vec_a,const NiVector3& vec_b)
 	gLog.FormattedMessage("Form 2Points length %.2f",length);
 	NiVector4 rcPos{};
 	gLog.Message("Begin to RayCastCoords");
-	if (rcPos.RayCastCoords(vec_a, rotMat + 1, length, layerType)) {
+	/*if (rcPos.RayCastCoords(vec_a, rotMat + 1, length, layerType)) {
 		gLog.Message("RayCastCoords Success");
 		return Point3Distance(rcPos, vec_b);
-	}
+	}*/
 	return -1;
 }
 //#endif
@@ -656,6 +771,7 @@ struct _Sound
 	static void PlayTESSound(TESSound* soundForm, UInt32 flags, TESObjectREFR* refr);
 	static void PlayTESSound(TESSound* soundForm, UInt32 flags, TESObjectREFR* refr,const NiVector3& _pos);
 	static void PlayTESSoundAtPos(TESSound* soundForm, UInt32 flags, const NiVector3& _pos);
+	static void PlayTESSoundAtPos(TESSound* soundForm, const char* filePath, UInt32 flags, const NiVector3& _pos);
 };
 
 class BSWin32Audio {
@@ -805,7 +921,7 @@ void _Sound::PlayTESSound(TESSound* soundForm, UInt32 flags, TESObjectREFR* refr
 	//BSAudioManager::Get()->InitSoundForm(sound, soundForm->refID, flags);
 	if (sound.soundKey != 0xFFFFFFFF)
 	{
-		sound.SetPos(refrNode->m_worldTranslate);
+		sound.SetPos(refrNode->m_transformWorld.translate);
 		sound.SetNiNode(refrNode);
 		sound.Play();
 	}
@@ -843,6 +959,28 @@ inline void _Sound::PlayTESSoundAtPos(TESSound* soundForm, UInt32 flags, const N
 	const char* filePath = soundForm->soundFile.path.m_data;
 	if (!filePath) {
 		gLog.Message("refr dont have node or soundform dont have path");
+		return;
+	}
+	_Sound sound;
+	ThisStdCall(0xAD7480, BSWin32Audio::Get(), &sound, filePath, flags, soundForm);
+	//BSAudioManager::Get()->InitSoundForm(sound, soundForm->refID, flags);
+	if (sound.soundKey != 0xFFFFFFFF)
+	{
+		sound.SetVolume(100.0);
+		sound.SetPos(_pos);
+		sound.SetNiNode(nullptr);
+		sound.Play();
+	}
+}
+
+inline void _Sound::PlayTESSoundAtPos(TESSound* soundForm, const char* filePath, UInt32 flags, const NiVector3& _pos)
+{
+	if (!soundForm) {
+		gLog.Message("soundForm invaild");
+		return;
+	}
+	if (!filePath) {
+		gLog.Message("refr dont have node or input a invalid sound path");
 		return;
 	}
 	_Sound sound;
@@ -903,5 +1041,47 @@ static TESSound* GetClonedTESSoundForRico(UINT32 form_id) {
 	clonded_sound->maxAttenuationDist = 32;
 	gLog.Message("clonded_sound has created");
 	return clonded_sound;
+}
+
+// 0x21f - FSTSnow
+static TESSound* GetNewTESSound( OUT TESSound* _new_sound, IN const char* _sound_path ,UINT32 cloned_form_id = 0x21f) {
+	if (_new_sound) {
+		if (IS_TYPE(_new_sound, TESSound)) return _new_sound;
+	}
+
+	gLog.Message("rico_sound is none,created it");
+	TESForm* to_clone = LookupFormByID(cloned_form_id);
+	if (!to_clone) {
+		gLog.Message("Run LookupFormByID For FSTSnow faild");
+		return nullptr;
+	}
+	else if (!IS_TYPE(to_clone, TESSound)) {
+		gLog.Message("Run LookupFormByID For FSTSnow success,but form is not TESSound");
+		return nullptr;
+	}
+	_new_sound = (TESSound*)TempCloneForm(to_clone);
+
+	if (!_new_sound) {
+		gLog.Message("Run TempCloneForm For clonded_sound faild");
+		return nullptr;
+	}
+	else if (!IS_TYPE(to_clone, TESSound)) {
+		gLog.Message("Run TempCloneForm For clonded_sound success,but form is not TESSound");
+		return nullptr;
+	}
+	_new_sound->soundFile.path.Set(R"(fx\RicochetSound\)");
+	_new_sound->soundFlags |= TESSound::kFlag_360LFE;
+	//clonded_sound->soundFlags |= TESSound::kFlag_2DRadius;
+	gLog.FormattedMessage("original mindis %u,maxdis %u", _new_sound->minAttenuationDist, _new_sound->maxAttenuationDist);
+	_new_sound->minAttenuationDist = 128;
+	_new_sound->maxAttenuationDist = 32;
+	gLog.Message("clonded_sound has created");
+	return _new_sound;
+}
+
+static __forceinline void initSingleton() {
+	g_TES = TES::GetSingleton();
+	g_thePlayer = PlayerCharacter::GetSingleton();
+	g_gridCellArray = g_TES->gridCellArray;
 }
 
