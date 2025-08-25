@@ -774,15 +774,20 @@ namespace PenetrateAndRicochet {
 	// makeshift fix for multiply muzzle flash
 	// just for player now
 	static void __fastcall PjINITUpdateMuzzleFlash(Projectile* _this) {
-		if (TESObjectREFR* src = _this->sourceRef;IS_ACTOR(src))
+		if (_this && _this->typeID == 61)
 		{
-			if (Kill_PC_MF)
+			if (TESObjectREFR* src = _this->sourceRef;
+				src == PlayerCharacter::GetSingleton())
 			{
-				return;
+				if (Kill_PC_MF)
+				{
+					return;
+				}
 			}
+			ThisStdCall<void>(pj_init_update_muzzleflash.GetOverwrittenAddr(), _this);
 		}
-		ThisStdCall<void>(pj_init_update_muzzleflash.GetOverwrittenAddr(), _this);
 	}
+
 
 	static inline void InstallHook()
 	{
